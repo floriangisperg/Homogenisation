@@ -3,4 +3,23 @@ name = "homogenisation"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "jax",
+    "jaxlib",
+    "optax",
+    "jaxtyping",
+    "beartype",
+    "openpyxl"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "jupyterlab",
+]

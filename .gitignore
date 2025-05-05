@@ -1,0 +1,35 @@
+*.png
+*.xlsx
+*.csv
+
+/homogenisation.egg-info
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE / Editor specific
+.idea/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Results (optional - if easily reproducible or large)
+# results/
+
+# Data (optional - if large, sensitive, or stored elsewhere)
+# data/processed/
+# data/raw/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
