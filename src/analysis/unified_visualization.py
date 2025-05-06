@@ -826,3 +826,120 @@ class VisualizationManager:
         plt.close(fig)
 
         return self.output_dir / (subdir or "") / filename
+
+    def plot_residuals(self, df: pd.DataFrame, y_col: str, y_pred_col: str,
+                       x_col: str = None, subdir: str = None,
+                       title: str = None, log_scale: bool = False):
+        """
+        Create residual plots for model diagnostics.
+
+        Args:
+            df: DataFrame with observed and predicted values
+            y_col: Column name for observed values
+            y_pred_col: Column name for predicted values
+            x_col: Optional column to plot residuals against
+            subdir: Optional subdirectory to save within output_dir
+            title: Optional title override
+            log_scale: Whether to use log scale for values
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = [y_col, y_pred_col]
+        if x_col:
+            required_cols.append(x_col)
+
+        if not all(col in df.columns for col in required_cols):
+            missing = set(required_cols) - set(df.columns)
+            print(f"Missing columns for residual plot: {missing}")
+            return None
+
+        # Prepare data
+        plot_data = df.dropna(subset=required_cols).copy()
+        if plot_data.empty:
+            print("Warning: No valid data for residual plot.")
+            return None
+
+        # Calculate residuals
+        plot_data['residual'] = plot_data[y_col] - plot_data[y_pred_col]
+
+        if log_scale:
+            # For log scale, calculate relative residuals
+            valid_mask = (plot_data[y_col] > 0) & (plot_data[y_pred_col] > 0)
+            plot_data = plot_data[valid_mask].copy()
+
+            if plot_data.empty:
+                print("Warning: No valid positive data for log-scale residual plot.")
+                return None
+
+            plot_data['relative_residual'] = plot_data['residual'] / plot_data[y_col]
+            residual_col = 'relative_residual'
+            residual_label = 'Relative Residual'
+        else:
+            residual_col = 'residual'
+            residual_label = 'Residual'
+
+        # Set up figure for multiple plots
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Plot 1: Residuals vs predicted
+        ax1 = axes[0]
+        sns.scatterplot(
+            data=plot_data,
+            x=y_pred_col,
+            y=residual_col,
+            hue='biomass_type' if 'biomass_type' in plot_data.columns else None,
+            palette=self.color_schemes['sequential'],
+            alpha=0.7,
+            edgecolor='k',
+            ax=ax1
+        )
+
+        # Add horizontal line at 0
+        ax1.axhline(y=0, color='r', linestyle='--')
+
+        # Labels
+        pred_label = y_pred_col.replace('_', ' ').title()
+        ax1.set_xlabel(f"{pred_label}")
+        ax1.set_ylabel(residual_label)
+        ax1.set_title(f"{residual_label} vs {pred_label}")
+
+        if log_scale and y_pred_col in ['dna_pred']:
+            ax1.set_xscale('log')
+
+        ax1.grid(True, linestyle='--', alpha=0.6)
+
+        # Plot 2: Residual distribution
+        ax2 = axes[1]
+        sns.histplot(
+            data=plot_data,
+            x=residual_col,
+            kde=True,
+            bins=20,
+            color=self.color_schemes['primary'],
+            ax=ax2
+        )
+
+        # Add vertical line at 0
+        ax2.axvline(x=0, color='r', linestyle='--')
+
+        # Labels
+        ax2.set_xlabel(residual_label)
+        ax2.set_ylabel("Count")
+        ax2.set_title(f"Distribution of {residual_label}s")
+
+        ax2.grid(True, linestyle='--', alpha=0.6)
+
+        # Overall title
+        if title:
+            fig.suptitle(title, fontsize=14, y=1.05)
+        else:
+            fig.suptitle(f"{y_col.replace('_', ' ').title()} Model Diagnostic Plots", fontsize=14, y=1.05)
+
+        # Save figure
+        y_type = y_col.split('_')[0]
+        filename = f"{y_type}_residual_plots{'_log' if log_scale else ''}.png"
+        self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename

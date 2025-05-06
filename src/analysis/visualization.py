@@ -1163,3 +1163,4 @@ class VisualizationManager:
             plt.close(fig)
 
         return saved_plots
+

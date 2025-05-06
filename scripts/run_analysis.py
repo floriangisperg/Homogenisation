@@ -57,6 +57,9 @@ try:
         SaturationDNAModel,
         PhysicalAdsorptionDNAModel
     )
+    # from analysis.models.two_compartment_dna_model import TwoCompartmentDNAModel
+    from analysis.models.two_compartment_dna_model import TwoCompartmentMechanisticModel
+    from analysis.models.simplified_compartment_model import SimplifiedCompartmentModel
 
     # Import cross-validation
     from analysis.cross_validation import CrossValidator
@@ -80,12 +83,14 @@ DATA_FILENAME = "scfv_lysis.xlsx"
 
 # Define all available model types
 AVAILABLE_MODEL_TYPES = [
-    "single_wash",
-    "step_dependent_wash",
-    "continuous_decay",
-    "concentration_dependent",
-    "saturation",
-    "physical_adsorption"
+    # "single_wash",
+    # "step_dependent_wash",
+    # "continuous_decay",
+    # "concentration_dependent",
+    # "saturation",
+    # "physical_adsorption",
+    "two_compartment",
+    # "simplified_compartment"
 ]
 
 
@@ -101,12 +106,14 @@ def create_dna_model(model_type):
         An instance of the specified DNA model
     """
     model_map = {
-        "single_wash": SingleWashDNAModel,
-        "step_dependent_wash": StepDependentWashDNAModel,
-        "continuous_decay": ContinuousDecayDNAModel,
-        "concentration_dependent": ConcentrationDependentDNAModel,
-        "saturation": SaturationDNAModel,
-        "physical_adsorption": PhysicalAdsorptionDNAModel
+        # "single_wash": SingleWashDNAModel,
+        # "step_dependent_wash": StepDependentWashDNAModel,
+        # "continuous_decay": ContinuousDecayDNAModel,
+        # "concentration_dependent": ConcentrationDependentDNAModel,
+        # "saturation": SaturationDNAModel,
+        # "physical_adsorption": PhysicalAdsorptionDNAModel,
+        "two_compartment": TwoCompartmentMechanisticModel,
+        # "simplified_compartment": SimplifiedCompartmentModel
     }
 
     if model_type not in model_map:
