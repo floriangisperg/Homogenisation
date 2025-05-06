@@ -1,4 +1,5 @@
 # src/analysis/cross_validation.py
+import logging
 import numpy as np
 import pandas as pd
 import time
@@ -11,7 +12,10 @@ from .models.base_model import Model
 from .models.intact_model import IntactModel
 from .models.dna_models import DNABaseModel
 from .evaluation import calculate_metrics, calculate_dna_metrics
-from .plotting import plot_parity, plot_dna_parity_matplotlib
+from .unified_visualization import VisualizationManager  # Updated import
+
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class CrossValidator:
@@ -42,6 +46,13 @@ class CrossValidator:
         self.fold_params = defaultdict(list)
         self.all_loocv_predictions = []
 
+        logger.info("CrossValidator initialized with output_dir: %s", output_dir)
+        logger.debug("Using intact_model_class: %s", intact_model_class.__name__)
+        if dna_model_class:
+            logger.debug("Using dna_model_class: %s", dna_model_class.__name__)
+        else:
+            logger.debug("No DNA model class provided")
+
     def run_loocv(self,
                   df_raw: pd.DataFrame,
                   df_intact_fit_base: pd.DataFrame = None,
@@ -67,34 +78,32 @@ class CrossValidator:
             self.dna_output_dir = self.output_dir / "dna_model"
         self.dna_output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Create visualization managers for intact and DNA results
+        self.intact_viz = VisualizationManager(self.intact_output_dir)
+        self.dna_viz = VisualizationManager(self.dna_output_dir)
+
         # Prepare base data for LOOCV
         if df_intact_fit_base is None:
             df_intact_fit_base = df_raw.copy()
+            logger.debug("No intact fit base provided, using raw data")
 
         df_loocv_base_raw = df_raw.dropna(subset=['experiment_id']).copy()
         df_loocv_base_intact_fit = df_intact_fit_base.dropna(subset=['experiment_id']).copy()
 
-        # --- DEBUG INFORMATION ---
-        print("\nDEBUG LOOCV DATA:")
-        print(f"  Raw data shape: {df_raw.shape}")
-        print(f"  Raw data columns: {df_raw.columns.tolist()}")
-        print(f"  Intact fit base shape: {df_intact_fit_base.shape}")
-        print(f"  Raw with valid experiment_id shape: {df_loocv_base_raw.shape}")
-        print(f"  Intact fit with valid experiment_id shape: {df_loocv_base_intact_fit.shape}")
-
-        # Check experiment_id values
-        exp_ids = df_loocv_base_raw['experiment_id'].unique()
-        print(f"  Unique experiment_ids: {exp_ids}")
+        # Log data shapes and experiment IDs
+        logger.debug("Raw data shape: %s", df_raw.shape)
+        logger.debug("Intact fit base shape: %s", df_intact_fit_base.shape)
+        logger.debug("Raw with valid experiment_id shape: %s", df_loocv_base_raw.shape)
+        logger.debug("Intact fit with valid experiment_id shape: %s", df_loocv_base_intact_fit.shape)
 
         experiment_ids = sorted(df_loocv_base_raw['experiment_id'].unique())
         n_folds = len(experiment_ids)
-
-        print(f"Starting LOOCV with {n_folds} folds.")
-        print(f"  Intact model results will be saved to: {self.intact_output_dir}")
-        print(f"  DNA model results will be saved to: {self.dna_output_dir}")
+        logger.info("Starting LOOCV with %d folds (experiment IDs: %s)", n_folds, experiment_ids)
+        logger.info("Intact model results will be saved to: %s", self.intact_output_dir)
+        logger.info("DNA model results will be saved to: %s", self.dna_output_dir)
 
         if n_folds < 2:
-            print("LOOCV requires at least 2 experiments.")
+            logger.error("LOOCV requires at least 2 experiments, only found %d", n_folds)
             return {"error": "Insufficient experiments for LOOCV"}
 
         # Reset containers
@@ -103,11 +112,10 @@ class CrossValidator:
         self.fold_metrics_dna = defaultdict(list)
         self.fold_params = defaultdict(list)
         self.all_loocv_predictions = []
-        self.all_intact_predictions = []
 
         # --- LOOCV Loop ---
         for i, held_out_id in enumerate(experiment_ids):
-            print(f"\n--- LOOCV Fold {i + 1}/{n_folds}: Holding out Exp {held_out_id} ---")
+            logger.info("--- LOOCV Fold %d/%d: Holding out Exp %d ---", i + 1, n_folds, held_out_id)
 
             # --- 1. Split Data ---
             train_ids = [eid for eid in experiment_ids if eid != held_out_id]
@@ -117,10 +125,10 @@ class CrossValidator:
             df_raw_test = df_loocv_base_raw[df_loocv_base_raw['experiment_id'] == held_out_id].copy()
 
             # Debug logging for this fold
-            print(f"  Train data: {len(df_raw_train)} rows, Test data: {len(df_raw_test)} rows")
+            logger.debug("Train data: %d rows, Test data: %d rows", len(df_raw_train), len(df_raw_test))
 
             if df_intact_fit_train.empty or df_raw_train.empty or df_raw_test.empty:
-                print(f"  Skipping fold {i + 1} due to empty train or test set after splitting.")
+                logger.warning("Skipping fold %d due to empty train or test set after splitting.", i + 1)
                 continue
 
             # --- 2. Train and Evaluate Models ---
@@ -128,7 +136,7 @@ class CrossValidator:
 
             # Skip if fold processing failed
             if not fold_result.get("success", False):
-                print(f"  Skipping fold {i + 1} due to model fitting/prediction failure.")
+                logger.warning("Skipping fold %d due to model fitting/prediction failure.", i + 1)
                 continue
 
             # --- 3. Store Fold Results ---
@@ -139,8 +147,8 @@ class CrossValidator:
             metrics_intact = fold_result.get("metrics_intact", {})
             metrics_dna = fold_result.get("metrics_dna", {})
 
-            print(f"  Fold Intact Metrics: {metrics_intact}")
-            print(f"  Fold DNA Metrics: {metrics_dna}")
+            logger.info("Fold Intact Metrics: %s", metrics_intact)
+            logger.info("Fold DNA Metrics: %s", metrics_dna)
 
             # Append metrics
             for key, value in (metrics_intact or {}).items():
@@ -153,9 +161,38 @@ class CrossValidator:
             for param_name, param_value in params.items():
                 self.fold_params[param_name].append(param_value)
 
+            # --- 4. Generate fold-specific visualizations ---
+            test_predictions = fold_result.get("test_predictions")
+            if test_predictions is not None and not test_predictions.empty:
+                # Generate test prediction plots for this fold
+                logger.info("Generating test prediction plots for fold %d", i + 1)
+                # subdir = f"fold_{i + 1}"
+
+                # Plot test predictions vs process step
+                self.dna_viz.plot_cv_test_predictions(
+                    test_predictions,
+                    held_out_id,
+                )
+
+                # If intact model parameters are available, also generate other plots
+                if "k" in params and "alpha" in params:
+                    # Generate yield contour plot with fold-specific parameters
+                    k, alpha = params.get("k"), params.get("alpha")
+
+                    # Determine F0 based on test data
+                    f0 = 1.0  # Default for fresh biomass
+                    test_biomass_type = test_predictions["biomass_type"].iloc[0]
+                    if test_biomass_type.lower() == "frozen biomass" and "intact_biomass_percent" in test_predictions.columns:
+                        f0_val = test_predictions["intact_biomass_percent"].iloc[0] / 100.0
+                        if not pd.isna(f0_val) and 0 < f0_val <= 1:
+                            f0 = f0_val
+
+                    # Generate fold-specific yield contour plot
+                    self.dna_viz.plot_yield_contour(k, alpha, F0=f0,)
+
         # Check if we have any successful folds
         if not self.fold_results:
-            print("NO SUCCESSFUL FOLDS COMPLETED!")
+            logger.error("NO SUCCESSFUL FOLDS COMPLETED!")
             return {"error": "No successful LOOCV folds"}
 
         # --- Generate LOOCV Summary ---
@@ -184,18 +221,18 @@ class CrossValidator:
             "test_predictions": None
         }
 
-        # More detailed debugging
-        print("\n  DEBUG FOLD DATA:")
-        print(f"    df_intact_fit_train shape: {df_intact_fit_train.shape}")
+        # Log fold data details
+        logger.debug("df_intact_fit_train shape: %s", df_intact_fit_train.shape)
         if not df_intact_fit_train.empty:
-            print(f"    df_intact_fit_train columns: {df_intact_fit_train.columns.tolist()}")
+            # Log NaN counts for key columns
             for col in ['total_passages_650', 'total_passages_1000', 'intact_biomass_percent', 'observed_frac']:
                 if col in df_intact_fit_train.columns:
                     nan_count = df_intact_fit_train[col].isna().sum()
-                    print(f"    {col} NaN count: {nan_count} ({nan_count / len(df_intact_fit_train) * 100:.1f}%)")
+                    logger.debug("%s NaN count: %d (%.1f%%)", col, nan_count,
+                                 nan_count / len(df_intact_fit_train) * 100)
 
-        print(f"    df_raw_train shape: {df_raw_train.shape}")
-        print(f"    df_raw_test shape: {df_raw_test.shape}")
+        logger.debug("df_raw_train shape: %s", df_raw_train.shape)
+        logger.debug("df_raw_test shape: %s", df_raw_test.shape)
 
         # Check that input data contains required columns
         required_cols = ['experiment_id', 'biomass_type', 'wash_procedure', 'process_step',
@@ -203,61 +240,61 @@ class CrossValidator:
 
         if not all(col in df_intact_fit_train.columns for col in required_cols):
             missing = set(required_cols) - set(df_intact_fit_train.columns)
-            print(f"  Error: Missing required columns for intact model training: {missing}")
+            logger.error("Missing required columns for intact model training: %s", missing)
             return result
 
         if df_intact_fit_train.empty:
-            print("  Error: Empty training data for intact model.")
+            logger.error("Empty training data for intact model.")
             return result
 
         if df_raw_test.empty:
-            print("  Error: Empty test data.")
+            logger.error("Empty test data.")
             return result
 
         try:
             # --- 1. Create and train intact model ---
             intact_model = self.intact_model_class()
 
-            print("  Fitting intact model...")
+            logger.info("Fitting intact model...")
             intact_success = intact_model.fit(df_intact_fit_train)
 
             if not intact_success:
-                print("  Failed to fit intact model.")
-                print("  Inspect fit_intact_model result to see why.")
+                logger.error("Failed to fit intact model.")
                 return result
 
             # Store intact model parameters
             for key, value in intact_model.params.items():
                 result["params"][key] = value
-                print(f"  Intact model parameter: {key} = {value}")
+                logger.info("Intact model parameter: %s = %s", key, value)
 
             # --- 2. Generate intact predictions for both train and test data ---
-            print("  Generating intact predictions...")
+            logger.info("Generating intact predictions...")
             df_train_intact_pred = intact_model.predict(df_raw_train)
             df_test_intact_pred = intact_model.predict(df_raw_test)
 
             # Debug intact predictions
             if 'intact_frac_pred' in df_test_intact_pred.columns:
                 nan_count = df_test_intact_pred['intact_frac_pred'].isna().sum()
-                print(
-                    f"  Test intact predictions NaN count: {nan_count} ({nan_count / len(df_test_intact_pred) * 100:.1f}%)")
+                logger.debug("Test intact predictions NaN count: %d (%.1f%%)",
+                             nan_count, nan_count / len(df_test_intact_pred) * 100)
                 if not df_test_intact_pred['intact_frac_pred'].isnull().all():
-                    print(
-                        f"  Intact prediction range: {df_test_intact_pred['intact_frac_pred'].min():.3f} to {df_test_intact_pred['intact_frac_pred'].max():.3f}")
+                    logger.debug("Intact prediction range: %.3f to %.3f",
+                                 df_test_intact_pred['intact_frac_pred'].min(),
+                                 df_test_intact_pred['intact_frac_pred'].max())
             else:
-                print("  ERROR: 'intact_frac_pred' column missing in test predictions!")
+                logger.error("'intact_frac_pred' column missing in test predictions!")
 
             # Check if predictions are valid
             if 'intact_frac_pred' not in df_test_intact_pred.columns or df_test_intact_pred[
                 'intact_frac_pred'].isnull().all():
-                print("  Error: Intact model produced no valid predictions for test data.")
+                logger.error("Intact model produced no valid predictions for test data.")
                 return result
 
             # --- 3. Evaluate intact model ---
-            print("  Evaluating intact model...")
+            logger.info("Evaluating intact model...")
             metrics_intact_test = calculate_metrics(df_test_intact_pred)
             result["metrics_intact"] = metrics_intact_test
-            print(f"  Intact metrics: {metrics_intact_test}")
+            logger.info("Intact metrics: %s", metrics_intact_test)
 
             # If no DNA model class provided, stop here
             if self.dna_model_class is None:
@@ -266,12 +303,12 @@ class CrossValidator:
                 return result
 
             # --- 4. Create and train DNA model ---
-            print("  Fitting DNA model...")
+            logger.info("Fitting DNA model...")
             dna_model = self.dna_model_class()
             dna_success = dna_model.fit(df_train_intact_pred)
 
             if not dna_success:
-                print("  Failed to fit DNA model.")
+                logger.warning("Failed to fit DNA model.")
                 # Still return intact results
                 result["success"] = True
                 result["test_predictions"] = df_test_intact_pred
@@ -280,36 +317,37 @@ class CrossValidator:
             # Store DNA model parameters
             for key, value in dna_model.params.items():
                 result["params"][key] = value
-                print(f"  DNA model parameter: {key} = {value}")
+                logger.info("DNA model parameter: %s = %s", key, value)
 
             # --- 5. Generate DNA predictions for test data ---
-            print("  Generating DNA predictions...")
+            logger.info("Generating DNA predictions...")
             df_test_pred_final = dna_model.predict(df_test_intact_pred)
 
             # Debug DNA predictions
             if 'dna_pred' in df_test_pred_final.columns:
                 nan_count = df_test_pred_final['dna_pred'].isna().sum()
-                print(
-                    f"  Test DNA predictions NaN count: {nan_count} ({nan_count / len(df_test_pred_final) * 100:.1f}%)")
+                logger.debug("Test DNA predictions NaN count: %d (%.1f%%)",
+                             nan_count, nan_count / len(df_test_pred_final) * 100)
                 if not df_test_pred_final['dna_pred'].isnull().all():
-                    print(
-                        f"  DNA prediction range: {df_test_pred_final['dna_pred'].min():.3f} to {df_test_pred_final['dna_pred'].max():.3f}")
+                    logger.debug("DNA prediction range: %.3f to %.3f",
+                                 df_test_pred_final['dna_pred'].min(),
+                                 df_test_pred_final['dna_pred'].max())
             else:
-                print("  ERROR: 'dna_pred' column missing in test predictions!")
+                logger.error("'dna_pred' column missing in test predictions!")
 
             # Check if predictions are valid
             if 'dna_pred' not in df_test_pred_final.columns or df_test_pred_final['dna_pred'].isnull().all():
-                print("  Warning: DNA model produced no valid predictions for test data.")
+                logger.warning("DNA model produced no valid predictions for test data.")
                 # Return results with intact predictions only
                 result["success"] = True
                 result["test_predictions"] = df_test_intact_pred
                 return result
 
             # --- 6. Evaluate DNA model ---
-            print("  Evaluating DNA model...")
+            logger.info("Evaluating DNA model...")
             metrics_dna_test = calculate_dna_metrics(df_test_pred_final)
             result["metrics_dna"] = metrics_dna_test
-            print(f"  DNA metrics: {metrics_dna_test}")
+            logger.info("DNA metrics: %s", metrics_dna_test)
 
             result["success"] = True
             result["test_predictions"] = df_test_pred_final
@@ -318,8 +356,7 @@ class CrossValidator:
 
         except Exception as e:
             import traceback
-            print(f"  Error during fold execution: {e}")
-            traceback.print_exc()
+            logger.exception("Error during fold execution: %s", e)
             return result
 
     def _generate_loocv_summary(self, model_variant: str = None) -> Dict[str, Any]:
@@ -333,7 +370,7 @@ class CrossValidator:
             Dictionary with LOOCV summary metrics
         """
         if not self.fold_results:
-            print("No LOOCV folds completed successfully.")
+            logger.error("No LOOCV folds completed successfully.")
             return {"error": "No successful LOOCV folds"}
 
         try:
@@ -354,38 +391,38 @@ class CrossValidator:
                 intact_predictions_path = self.intact_output_dir / "intact_loocv_predictions.csv"
                 try:
                     df_intact_preds.to_csv(intact_predictions_path, index=False)
-                    print(f"Saved intact LOOCV predictions to {intact_predictions_path}")
+                    logger.info("Saved intact LOOCV predictions to %s", intact_predictions_path)
                 except Exception as e:
-                    print(f"Error saving intact LOOCV predictions: {e}")
+                    logger.error("Error saving intact LOOCV predictions: %s", e)
 
             # Save DNA predictions
             dna_predictions_path = self.dna_output_dir / "dna_loocv_predictions.csv"
             try:
                 df_loocv_all_preds.to_csv(dna_predictions_path, index=False)
-                print(f"Saved complete LOOCV predictions to {dna_predictions_path}")
+                logger.info("Saved complete LOOCV predictions to %s", dna_predictions_path)
             except Exception as e:
-                print(f"Error saving DNA LOOCV predictions: {e}")
+                logger.error("Error saving DNA LOOCV predictions: %s", e)
 
             # --- 2. Calculate overall metrics ---
-            print("\nOverall LOOCV Metrics (Calculated across all folds' predictions):")
+            logger.info("Calculating overall LOOCV metrics...")
             overall_metrics_intact = calculate_metrics(df_loocv_all_preds)
             overall_metrics_dna = calculate_dna_metrics(df_loocv_all_preds)
 
-            print(f"  Overall Intact: {overall_metrics_intact}")
-            print(f"  Overall DNA: {overall_metrics_dna}")
+            logger.info("Overall Intact: %s", overall_metrics_intact)
+            logger.info("Overall DNA: %s", overall_metrics_dna)
 
             # --- 3. Calculate average metrics across folds ---
-            print("\nAverage Metrics Across Folds:")
+            logger.info("Calculating average metrics across folds...")
             avg_metrics_intact = {k: f"{np.nanmean(v):.4f} ± {np.nanstd(v):.4f}"
                                   for k, v in self.fold_metrics_intact.items() if v}
             avg_metrics_dna = {k: f"{np.nanmean(v):.4f} ± {np.nanstd(v):.4f}"
                                for k, v in self.fold_metrics_dna.items() if v}
 
-            print(f"  Avg Fold Intact: {avg_metrics_intact}")
-            print(f"  Avg Fold DNA: {avg_metrics_dna}")
+            logger.info("Avg Fold Intact: %s", avg_metrics_intact)
+            logger.info("Avg Fold DNA: %s", avg_metrics_dna)
 
             # --- 4. Summarize parameters across folds ---
-            print("\nParameter Summary Across Folds (Mean ± Std Dev):")
+            logger.info("Summarizing parameters across folds...")
             param_summary = {}
             intact_params = {}
             dna_params = {}
@@ -418,25 +455,97 @@ class CrossValidator:
                     param_summary[param] = "N/A (No success)"
 
             for p, v in param_summary.items():
-                print(f"  {p}: {v}")
+                logger.info("%s: %s", p, v)
 
             # --- 5. Generate plots in appropriate directories ---
-            print("\nGenerating LOOCV Plots...")
+            logger.info("Generating LOOCV plots...")
             try:
                 # Check if intact predictions exist to plot
                 if not df_intact_preds.empty:
-                    plot_parity(df_intact_preds, self.intact_output_dir)
-                    print(f"  Saved intact parity plot to {self.intact_output_dir}")
+                    # Basic parity plot
+                    self.intact_viz.plot_intact_parity(df_intact_preds)
+                    logger.info("Saved intact parity plot to %s", self.intact_output_dir)
+
+                    # Generate additional intact plots if we have enough parameters
+                    k_values = [v for v in self.fold_params.get('k', []) if pd.notna(v)]
+                    alpha_values = [v for v in self.fold_params.get('alpha', []) if pd.notna(v)]
+
+                    if k_values and alpha_values:
+                        # Use average parameters from cross-validation
+                        mean_k = np.mean(k_values)
+                        mean_alpha = np.mean(alpha_values)
+                        logger.info("Generating additional intact model plots with mean parameters")
+
+                        # Make sure we have cumulative dose for overview plot
+                        if 'cumulative_dose' not in df_intact_preds.columns:
+                            # Try to add it using the mean parameters
+                            try:
+                                from .data_processing import add_cumulative_dose
+                                df_intact_preds = add_cumulative_dose(df_intact_preds, mean_k, mean_alpha)
+                            except Exception as e:
+                                logger.warning("Could not add cumulative_dose for overview plot: %s", e)
+
+                        # Generate overview plot if we can
+                        if 'cumulative_dose' in df_intact_preds.columns:
+                            self.intact_viz.plot_overview_fitted(df_intact_preds, mean_k, mean_alpha)
+                            logger.info("Created overview intact model plot")
+
+                        # Generate yield contour plots for both biomass types
+                        self.intact_viz.plot_yield_contour(mean_k, mean_alpha, F0=1.0)  # Fresh biomass
+                        logger.info("Created yield contour plot for fresh biomass")
+
+                        # Add frozen biomass contour if applicable
+                        if "frozen biomass" in df_intact_preds["biomass_type"].str.lower().unique():
+                            # Choose a reasonable F0 for frozen biomass
+                            frozen_F0 = 0.8  # Default if we can't find a better value
+
+                            # Try to get a value from data if possible
+                            frozen_samples = df_intact_preds[
+                                df_intact_preds["biomass_type"].str.lower() == "frozen biomass"]
+                            if not frozen_samples.empty and 'intact_biomass_percent' in frozen_samples.columns:
+                                first_value = frozen_samples['intact_biomass_percent'].iloc[0] / 100.0
+                                if pd.notna(first_value) and 0 < first_value <= 1:
+                                    frozen_F0 = first_value
+
+                            self.intact_viz.plot_yield_contour(mean_k, mean_alpha, F0=frozen_F0)
+                            logger.info("Created yield contour plot for frozen biomass")
 
                 # Check if DNA predictions exist to plot
                 if 'dna_pred' in df_loocv_all_preds.columns and not df_loocv_all_preds['dna_pred'].isnull().all():
                     plot_title = f"LOOCV ({model_variant})" if model_variant else "LOOCV"
-                    plot_dna_parity_matplotlib(df_loocv_all_preds, self.dna_output_dir, plot_title)
-                    print(f"  Saved DNA parity plot to {self.dna_output_dir}")
+                    self.dna_viz.plot_dna_parity(df_loocv_all_preds, title=plot_title)
+                    logger.info("Saved DNA parity plot to %s", self.dna_output_dir)
+
+                    # Generate parameter distribution boxplot if we have sufficient data
+                    if len(self.fold_params) > 0 and any(len(v) >= 2 for v in self.fold_params.values()):
+                        try:
+                            self.dna_viz.create_parameter_boxplot(self.fold_params)
+                            logger.info("Saved parameter distribution boxplot")
+                        except Exception as e:
+                            logger.error("Error creating parameter boxplot: %s", e)
+
+                    # Generate overview plot of DNA vs process step if we have sufficient data
+                    try:
+                        config_name = model_variant or "loocv"
+                        self.dna_viz.plot_dna_vs_step(df_loocv_all_preds, config_name=config_name)
+                        logger.info("Saved DNA vs process step overview plot")
+                    except Exception as e:
+                        logger.error("Error creating DNA vs process step plot: %s", e)
+
+                    # Generate residual plots
+                    try:
+                        self.dna_viz.plot_residuals(
+                            df_loocv_all_preds,
+                            'dna_conc',
+                            'dna_pred',
+                            title=f"{model_variant} Residuals" if model_variant else "DNA Residuals",
+                            log_scale=True
+                        )
+                        logger.info("Saved DNA residual plots")
+                    except Exception as e:
+                        logger.error("Error creating residual plots: %s", e)
             except Exception as e:
-                print(f"  ERROR during LOOCV plotting: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.exception("Error during LOOCV plotting: %s", e)
 
             # --- 6. Create and save separate summaries for intact and DNA models ---
             # Intact model summary
@@ -452,9 +561,9 @@ class CrossValidator:
             try:
                 with open(intact_summary_path, 'w') as f:
                     json.dump(intact_summary, f, indent=4, sort_keys=True)
-                print(f"Saved intact model LOOCV summary to {intact_summary_path}")
+                logger.info("Saved intact model LOOCV summary to %s", intact_summary_path)
             except Exception as e:
-                print(f"Error saving intact model LOOCV summary: {e}")
+                logger.error("Error saving intact model LOOCV summary: %s", e)
 
             # DNA model summary
             dna_summary = {
@@ -470,9 +579,9 @@ class CrossValidator:
             try:
                 with open(dna_summary_path, 'w') as f:
                     json.dump(dna_summary, f, indent=4, sort_keys=True)
-                print(f"Saved DNA model LOOCV summary to {dna_summary_path}")
+                logger.info("Saved DNA model LOOCV summary to %s", dna_summary_path)
             except Exception as e:
-                print(f"Error saving DNA model LOOCV summary: {e}")
+                logger.error("Error saving DNA model LOOCV summary: %s", e)
 
             # Combined summary (for backward compatibility)
             loocv_summary = {
@@ -489,6 +598,5 @@ class CrossValidator:
 
         except Exception as e:
             import traceback
-            print(f"Error generating LOOCV summary: {e}")
-            traceback.print_exc()
+            logger.exception("Error generating LOOCV summary: %s", e)
             return {"error": f"Error generating LOOCV summary: {str(e)}"}

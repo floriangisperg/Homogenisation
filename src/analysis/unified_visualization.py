@@ -1,0 +1,828 @@
+# src/analysis/unified_visualization.py
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import seaborn as sns
+from pathlib import Path
+from matplotlib.lines import Line2D
+from typing import Dict, Any, Tuple, Optional, List, Union
+
+
+class VisualizationManager:
+    """
+    Unified visualization manager for all plots in the lysis analysis pipeline.
+    Consolidates functionality from the original visualization.py and plotting.py.
+    """
+
+    def __init__(self, output_dir: Path, style: str = "seaborn-v0_8-whitegrid"):
+        """
+        Initialize the visualization manager.
+
+        Args:
+            output_dir: Base directory for saving plots
+            style: Matplotlib style to use
+        """
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Set style
+        try:
+            plt.style.use(style)
+        except:
+            plt.style.use('ggplot')  # Fallback style
+
+        # Set default font to one with better Unicode support
+        try:
+            plt.rcParams['font.family'] = 'DejaVu Sans'
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Bitstream Vera Sans', 'Verdana', 'Arial']
+        except Exception as e:
+            print(f"Warning: Could not set default font: {e}")
+
+        # Color schemes
+        self.color_schemes = {
+            'primary': 'royalblue',
+            'secondary': 'crimson',
+            'tertiary': 'forestgreen',
+            'observed': 'blue',
+            'predicted': 'red',
+            'sequential': sns.color_palette("Set2")
+        }
+
+    def _save_plot(self, fig, filename: str, subdir: str = None, dpi: int = 300, tight_layout: bool = True):
+        """
+        Helper method to save a plot to the output directory.
+
+        Args:
+            fig: Matplotlib figure object
+            filename: Name of the file to save
+            subdir: Optional subdirectory within output_dir
+            dpi: Resolution for saving
+            tight_layout: Whether to use tight_layout before saving
+        """
+        save_dir = self.output_dir
+        if subdir:
+            save_dir = self.output_dir / subdir
+            save_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = save_dir / filename
+
+        try:
+            if tight_layout:
+                fig.tight_layout()
+            fig.savefig(output_path, dpi=dpi, bbox_inches='tight')
+            print(f"  Saved plot to {output_path}")
+            return True
+        except Exception as e:
+            print(f"  Error saving plot: {e}")
+            return False
+
+    def plot_intact_parity(self, df: pd.DataFrame, subdir: str = None, title: str = None):
+        """
+        Create parity plot for intact fraction predictions.
+
+        Args:
+            df: DataFrame with 'observed_frac', 'intact_frac_pred', etc.
+            subdir: Optional subdirectory to save within output_dir
+            title: Optional title override
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = ['observed_frac', 'intact_frac_pred', 'wash_procedure', 'biomass_type']
+        if not all(col in df.columns for col in required_cols):
+            missing = set(required_cols) - set(df.columns)
+            print(f"Missing columns for intact parity plot: {missing}")
+            return None
+
+        plot_data = df.dropna(subset=required_cols).copy()
+        if plot_data.empty:
+            print("Warning: No valid data for intact parity plot.")
+            return None
+
+        # Set up figure
+        fig, ax = plt.subplots(figsize=(7, 6))
+
+        # Define markers and colors
+        markers = {"fresh biomass": "o", "frozen biomass": "s"}
+        wash_types = plot_data["wash_procedure"].unique()
+        palette = self.color_schemes['sequential'][:len(wash_types)]
+        color_map = dict(zip(wash_types, palette))
+
+        # Plot data points
+        legend_elements = []
+        plotted_labels = set()
+
+        for wash in wash_types:
+            wash_color = color_map.get(wash, 'black')
+            for biomass_key, biomass_marker in markers.items():
+                subset = plot_data[(plot_data["wash_procedure"] == wash) &
+                                   (plot_data["biomass_type"] == biomass_key)]
+                if not subset.empty:
+                    ax.scatter(subset["observed_frac"], subset["intact_frac_pred"],
+                               marker=biomass_marker, color=wash_color,
+                               edgecolor="k", s=50, alpha=0.9)
+
+                    # Add to legend if not already there
+                    label = f"{wash}, {biomass_key}"
+                    if label not in plotted_labels:
+                        legend_elements.append(
+                            Line2D([0], [0], marker=biomass_marker, color='w',
+                                   label=label, markerfacecolor=wash_color,
+                                   markeredgecolor='k', markersize=7)
+                        )
+                        plotted_labels.add(label)
+
+        # Plot y=x line
+        lims = [0, 1]
+        ax.plot(lims, lims, 'k--', lw=1.5)
+        legend_elements.append(Line2D([0], [0], color='k', linestyle='--', lw=1.5, label='y = x'))
+
+        # Labels and formatting
+        ax.set_xlabel("Observed Fraction Intact", fontsize=12)
+        ax.set_ylabel("Predicted Fraction Intact", fontsize=12)
+
+        if title:
+            ax.set_title(title, fontsize=14, pad=15)
+        else:
+            ax.set_title("Parity Plot: Observed vs. Predicted Intact Fraction", fontsize=14, pad=15)
+
+        ax.set_xlim([-0.05, 1.05])
+        ax.set_ylim([-0.05, 1.05])
+        ax.set_xticks(np.arange(0, 1.1, 0.2))
+        ax.set_yticks(np.arange(0, 1.1, 0.2))
+        ax.tick_params(axis='both', labelsize=10)
+
+        # Legend
+        ax.legend(handles=legend_elements, fontsize=9, title="Condition",
+                  title_fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
+
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.set_aspect('equal', adjustable='box')
+
+        # Save figure
+        filename = "intact_parity_plot.png"
+        self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    def plot_dna_parity(self, df: pd.DataFrame, subdir: str = None, title: str = None):
+        """
+        Create parity plot for DNA concentration predictions (log-log scale).
+
+        Args:
+            df: DataFrame with 'dna_conc', 'dna_pred', etc.
+            subdir: Optional subdirectory to save within output_dir
+            title: Optional title override
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = ['dna_conc', 'dna_pred', 'wash_procedure', 'biomass_type', 'process_step']
+        if not all(col in df.columns for col in required_cols):
+            missing = set(required_cols) - set(df.columns)
+            print(f"Missing columns for DNA parity plot: {missing}")
+            return None
+
+        # Filter data and remove negative or zero values (incompatible with log scale)
+        plot_data_base = df.dropna(subset=['dna_conc', 'dna_pred']).copy()
+        plot_data_base = plot_data_base[plot_data_base['process_step'].str.lower() != "resuspended biomass"]
+        plot_data = plot_data_base[(plot_data_base['dna_conc'] > 0) & (plot_data_base['dna_pred'] > 0)].copy()
+
+        if plot_data.empty:
+            print(f"Warning: No valid positive data points found for DNA parity plot. Skipping.")
+            return None
+
+        # Set up figure
+        fig, ax = plt.subplots(figsize=(6.5, 5.5))
+
+        # Add user-friendly column names for the legend
+        plot_data['Wash Type'] = plot_data['wash_procedure'].str.replace(" wash", "")
+        plot_data['Biomass'] = plot_data['biomass_type'].str.replace(" biomass", "").str.capitalize()
+
+        # Create scatterplot
+        sns.scatterplot(
+            data=plot_data, x="dna_conc", y="dna_pred",
+            hue="Wash Type", style="Biomass",
+            markers={"Fresh": "o", "Frozen": "s"},
+            palette=self.color_schemes['sequential'],
+            s=50, edgecolor="k", alpha=0.8, ax=ax
+        )
+
+        # Set log scales
+        ax.set(xscale="log", yscale="log")
+
+        # Plot y=x line
+        min_val = min(plot_data["dna_conc"].min(), plot_data["dna_pred"].min()) * 0.8
+        max_val = max(plot_data["dna_conc"].max(), plot_data["dna_pred"].max()) * 1.2
+        ax.plot([min_val, max_val], [min_val, max_val], 'k--', lw=1.5, zorder=1)
+
+        # Labels and formatting
+        ax.set_xlim(min_val, max_val)
+        ax.set_ylim(min_val, max_val)
+        ax.set_xlabel("Observed DNA [ng/µL] (Log Scale)", fontsize=11)
+        ax.set_ylabel("Predicted DNA [ng/µL] (Log Scale)", fontsize=11)
+
+        if title:
+            ax.set_title(title, fontsize=13, pad=15)
+        else:
+            ax.set_title("DNA Concentration Parity Plot (Log-Log Scale)", fontsize=13, pad=15)
+
+        # Format tick labels for log scale
+        ax.xaxis.set_major_formatter(mticker.LogFormatter(base=10.0, labelOnlyBase=False))
+        ax.yaxis.set_major_formatter(mticker.LogFormatter(base=10.0, labelOnlyBase=False))
+        ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+        ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+        ax.tick_params(axis='both', labelsize=9)
+
+        # Legend and grid
+        plt.legend(title="Condition", title_fontsize=10, fontsize=9,
+                   bbox_to_anchor=(1.03, 1), loc='upper left')
+        ax.grid(True, which='major', linestyle='-', alpha=0.6)
+        ax.grid(True, which='minor', linestyle=':', alpha=0.3)
+
+        # Save figure
+        filename = "dna_parity_plot_loglog.png"
+        self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    # Migrated from plotting.py
+    def plot_overview_fitted(self, df_fit: pd.DataFrame, k: float, alpha: float, subdir: str = None):
+        """
+        Generate overview plot showing both observed and fitted intact fractions vs dose.
+
+        Args:
+            df_fit: DataFrame with intact fraction data
+            k: Fitted k parameter
+            alpha: Fitted alpha parameter
+            subdir: Optional subdirectory to save within output_dir
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = ['experiment_id', 'observed_frac', 'cumulative_dose', 'intact_biomass_percent',
+                         'biomass_type', 'wash_procedure']
+        if not all(col in df_fit.columns for col in required_cols):
+            missing = set(required_cols) - set(df_fit.columns)
+            print(f"Missing columns for overview fitted plot: {missing}")
+            return None
+
+        df_plot_data = df_fit.dropna(subset=['experiment_id']).copy()
+        if df_plot_data.empty:
+            print("Warning: No experiments after dropping NA experiment_id.")
+            return None
+
+        experiment_ids = sorted(df_plot_data['experiment_id'].unique())
+        n_total = len(experiment_ids)
+        if n_total == 0:
+            print("Warning: No experiments found for overview plot.")
+            return None
+
+        # Prepare layout parameters
+        n_top = 3 if n_total >= 3 else n_total
+        n_bottom = min(4, n_total - n_top)
+        has_top_row = n_top > 0
+        has_bottom_row = n_bottom > 0
+
+        # Calculate figure dimensions
+        subplot_width = 2
+        subplot_height = 2
+        h_spacing = 0.5
+        v_spacing = 1.0 if (has_top_row and has_bottom_row) else 0
+        left_margin = 1
+        right_margin = 1
+        bottom_margin = 1
+        top_margin = 1.2
+
+        total_top_width = n_top * subplot_width + (n_top - 1) * h_spacing if has_top_row else 0
+        total_bottom_width = n_bottom * subplot_width + (n_bottom - 1) * h_spacing if has_bottom_row else 0
+
+        fig_width = max(total_top_width, total_bottom_width) + left_margin + right_margin
+        if has_top_row and has_bottom_row:
+            fig_height = top_margin + subplot_height + v_spacing + subplot_height + bottom_margin
+        elif has_top_row or has_bottom_row:
+            fig_height = top_margin + subplot_height + bottom_margin
+        else:
+            fig_height = top_margin + bottom_margin
+
+        # Create figure
+        fig = plt.figure(figsize=(fig_width, fig_height))
+
+        # Create axes
+        axes_list = []
+        if has_top_row:
+            top_y = (
+                                bottom_margin + subplot_height + v_spacing) / fig_height if has_bottom_row else bottom_margin / fig_height
+            top_h = subplot_height / fig_height
+            top_row_content_width = fig_width - left_margin - right_margin
+            top_left_offset = left_margin + (top_row_content_width - total_top_width) / 2
+
+            for i in range(n_top):
+                ax_left_norm = (top_left_offset + i * (subplot_width + h_spacing)) / fig_width
+                ax_width_norm = subplot_width / fig_width
+                axes_list.append(fig.add_axes([ax_left_norm, top_y, ax_width_norm, top_h]))
+
+        if has_bottom_row:
+            bottom_y = bottom_margin / fig_height
+            bottom_h = subplot_height / fig_height
+            bottom_row_content_width = fig_width - left_margin - right_margin
+            bottom_left_offset = left_margin + (bottom_row_content_width - total_bottom_width) / 2
+
+            for i in range(n_bottom):
+                ax_left_norm = (bottom_left_offset + i * (subplot_width + h_spacing)) / fig_width
+                ax_width_norm = subplot_width / fig_width
+                axes_list.append(fig.add_axes([ax_left_norm, bottom_y, ax_width_norm, bottom_h]))
+
+        # Define plot colors and shared axis limits
+        observed_color = self.color_schemes['primary']
+        predicted_color = self.color_schemes['secondary']
+        common_yticks = np.arange(0, 1.1, 0.25)
+        max_overall_dose = df_plot_data['cumulative_dose'].max()
+        xlim_max = max(2, np.ceil(max_overall_dose)) if pd.notna(max_overall_dose) else 2
+        common_xlim = (-0.05 * xlim_max, xlim_max * 1.05)
+
+        # Plot each experiment
+        for i, (ax, exp_id) in enumerate(zip(axes_list, experiment_ids)):
+            exp_data = df_plot_data[df_plot_data['experiment_id'] == exp_id].sort_index()
+            if exp_data.empty:
+                continue
+
+            # Plot observed data points
+            ax.scatter(
+                exp_data['cumulative_dose'],
+                exp_data['observed_frac'],
+                color=observed_color,
+                s=25,
+                zorder=5,
+                edgecolor='k',
+                linewidth=0.5
+            )
+
+            # Plot predicted curve
+            row0 = exp_data.iloc[0]
+            if row0['biomass_type'] == "fresh biomass":
+                F0 = 1.0
+            else:
+                F0 = row0['intact_biomass_percent'] / 100.0
+                if pd.isna(F0) or not (0 < F0 <= 1):
+                    F0 = row0['observed_frac']
+                if pd.isna(F0) or not (0 < F0 <= 1):
+                    F0 = None
+
+            if F0 is not None:
+                max_dose_exp = exp_data['cumulative_dose'].max()
+                if pd.isna(max_dose_exp) or max_dose_exp <= 0:
+                    max_dose_exp = 1e-6
+                dose_fine = np.linspace(0, max_dose_exp, 200)
+                predicted_fine = F0 * np.exp(-dose_fine)
+                ax.plot(dose_fine, predicted_fine, color=predicted_color, lw=1.5, zorder=3)
+
+            # Set axis limits and ticks
+            ax.set_ylim(-0.05, 1.05)
+            ax.set_yticks(common_yticks)
+            ax.set_xlim(common_xlim)
+
+            plt.setp(ax.get_xticklabels(), rotation=0, ha='center', fontsize=9)
+            plt.setp(ax.get_yticklabels(), fontsize=9)
+
+            # Set labels based on position
+            is_leftmost_top = has_top_row and (i == 0)
+            is_leftmost_bottom = has_bottom_row and (i == n_top)
+
+            if is_leftmost_top or is_leftmost_bottom:
+                ax.set_ylabel("Fraction Intact", fontsize=11)
+            else:
+                ax.set_ylabel('')
+                plt.setp(ax.get_yticklabels(), visible=False)
+
+            is_on_bottom_row = has_bottom_row and (i >= n_top)
+            is_only_row = not has_bottom_row
+
+            if is_on_bottom_row or is_only_row:
+                ax.set_xlabel('')
+            else:
+                ax.set_xlabel('')
+                plt.setp(ax.get_xticklabels(), visible=False)
+
+            # Add experiment info and title
+            wash = row0['wash_procedure']
+            biomass = row0['biomass_type']
+            ax.text(
+                0.95, 0.95,
+                f"{wash}\n{biomass}",
+                transform=ax.transAxes,
+                verticalalignment='top',
+                horizontalalignment='right',
+                fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.6)
+            )
+
+            ax.set_title(f'Exp {exp_id}', fontsize=11)
+            ax.grid(True, linestyle=':', alpha=0.6)
+
+        # Add common x-axis label
+        if has_top_row or has_bottom_row:
+            fig.text(
+                0.5, (bottom_margin / 2) / fig_height,
+                r"Cumulative Dose ($k \cdot P^{\alpha} \cdot N$)",
+                ha='center',
+                va='center',
+                fontsize=12
+            )
+
+        # Add legend
+        observed_handle = Line2D(
+            [], [],
+            marker='o',
+            color=observed_color,
+            linestyle='None',
+            markersize=6,
+            markeredgecolor='k',
+            markeredgewidth=0.5,
+            label='Observed'
+        )
+
+        predicted_handle = Line2D(
+            [], [],
+            color=predicted_color,
+            lw=1.5,
+            label='Model Fit'
+        )
+
+        fig.legend(
+            handles=[observed_handle, predicted_handle],
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1 - (top_margin / fig_height) * 0.2),
+            ncol=2,
+            fontsize=11
+        )
+
+        # Save figure
+        filename = "overview_fitted_vs_dose.png"
+        self._save_plot(fig, filename, subdir, tight_layout=False)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    def plot_yield_contour(self, k: float, alpha: float, F0: float = 1.0, subdir: str = None):
+        """
+        Generate a contour plot of predicted yield vs. pressure and number of passes.
+
+        Args:
+            k: Fitted k parameter
+            alpha: Fitted alpha parameter
+            F0: Initial intact fraction
+            subdir: Optional subdirectory to save within output_dir
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        fig, ax = plt.subplots(figsize=(7, 5.5))
+
+        # Generate grid data
+        pressures = np.linspace(400, 1200, 100)
+        passes = np.linspace(0, 6, 100)
+        P, N = np.meshgrid(pressures, passes)
+
+        # Calculate predicted yield
+        P_safe = np.maximum(P, 1e-9)  # Prevent numeric issues
+        D = k * (P_safe ** alpha) * N
+        yield_pred = 1.0 - (F0 * np.exp(-D))
+        yield_pred = np.clip(yield_pred, 0, 1)
+
+        # Create contour plot
+        levels = np.linspace(0, 1, 21)
+        contour = ax.contourf(P, N, yield_pred, levels=levels, cmap='viridis', extend='neither')
+        contour_lines = ax.contour(P, N, yield_pred, levels=levels[::2], colors='white', linewidths=0.5, alpha=0.7)
+        ax.clabel(contour_lines, inline=True, fontsize=8, fmt='%.1f')
+
+        # Labels and formatting
+        ax.set_xlabel("Pressure (bar)", fontsize=12)
+        ax.set_ylabel("Number of Passes (N)", fontsize=12)
+
+        biomass_type_label = "Fresh Biomass (F0=1.0)" if abs(F0 - 1.0) < 1e-6 else f"Frozen Biomass (F0={F0:.2f})"
+        ax.set_title(f"Predicted Yield Contour Plot ({biomass_type_label})", fontsize=14, pad=15)
+
+        # Colorbar
+        cbar = plt.colorbar(contour, ax=ax, ticks=np.linspace(0, 1, 11))
+        cbar.set_label(f"Predicted Yield (1 - F)", fontsize=12)
+        cbar.ax.tick_params(labelsize=10)
+
+        ax.tick_params(axis='both', labelsize=10)
+        ax.grid(True, linestyle=':', alpha=0.5)
+
+        # Save figure
+        f0_str = f"{F0:.2f}".replace('.', 'p')
+        filename = f"yield_contour_plot_F0_{f0_str}.png"
+        self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    def plot_cv_test_predictions(self, df_test: pd.DataFrame, exp_id: int, subdir: str = None):
+        """
+        Plot test set predictions against actual data for a single cross-validation fold.
+
+        Args:
+            df_test: DataFrame with test predictions
+            exp_id: Experiment ID for the test fold
+            subdir: Optional subdirectory to save within output_dir
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        # Create subdirectory for CV plots if not specified
+        if not subdir:
+            subdir = "cv_test_predictions"
+
+        # Check required columns for intact fraction
+        intact_required = ['experiment_id', 'process_step', 'observed_frac', 'intact_frac_pred']
+        has_intact = all(col in df_test.columns for col in intact_required)
+
+        # Check required columns for DNA predictions
+        dna_required = ['experiment_id', 'process_step', 'dna_conc', 'dna_pred']
+        has_dna = all(col in df_test.columns for col in dna_required)
+
+        if not has_intact and not has_dna:
+            print(f"Missing required columns for CV test prediction plot. Cannot generate plot.")
+            return None
+
+        # Create figure with 1 or 2 subplots based on available data
+        n_plots = sum([has_intact, has_dna])
+        fig, axes = plt.subplots(n_plots, 1, figsize=(8, 4 * n_plots), sharex=True)
+
+        # Convert to list for consistent indexing if only one subplot
+        if n_plots == 1:
+            axes = [axes]
+
+        plot_idx = 0
+
+        # Plot intact fraction vs process step
+        if has_intact:
+            ax = axes[plot_idx]
+
+            # Filter data to ensure it's for this experiment
+            df_intact = df_test[df_test['experiment_id'] == exp_id].copy()
+
+            if df_intact.empty:
+                print(f"No intact fraction data found for experiment {exp_id}")
+            else:
+                # Sort by process step (assuming chronological order)
+                df_intact = df_intact.sort_index()
+
+                # Get x-axis indices and process steps
+                x_indices = range(len(df_intact))
+                process_steps = df_intact['process_step'].values
+
+                # Plot observed data
+                valid_obs = df_intact['observed_frac'].notna()
+                if valid_obs.any():
+                    # Get the indices where observed values are valid
+                    obs_indices = [i for i, is_valid in enumerate(valid_obs) if is_valid]
+                    ax.plot(
+                        obs_indices,
+                        df_intact.loc[valid_obs, 'observed_frac'],
+                        marker='o',
+                        linestyle='-',
+                        color=self.color_schemes['observed'],
+                        label='Observed'
+                    )
+
+                # Plot predicted data
+                valid_pred = df_intact['intact_frac_pred'].notna()
+                if valid_pred.any():
+                    # Get the indices where predicted values are valid
+                    pred_indices = [i for i, is_valid in enumerate(valid_pred) if is_valid]
+                    ax.plot(
+                        pred_indices,
+                        df_intact.loc[valid_pred, 'intact_frac_pred'],
+                        marker='x',
+                        linestyle='--',
+                        color=self.color_schemes['predicted'],
+                        label='Predicted'
+                    )
+
+                # Set x-tick labels to process steps
+                ax.set_xticks(x_indices)
+                ax.set_xticklabels(process_steps, rotation=45, ha='right')
+
+                # Set labels and title
+                ax.set_ylabel('Fraction Intact')
+                ax.set_title(f'Experiment {exp_id}: Intact Fraction Test Predictions', fontsize=12)
+
+                # Add grid and legend
+                ax.grid(True, linestyle='--', alpha=0.6)
+                ax.legend()
+
+                # Set y-axis limits with small padding
+                ax.set_ylim(-0.05, 1.05)
+
+                # Add biomass and wash procedure info as text
+                if 'biomass_type' in df_intact.columns and 'wash_procedure' in df_intact.columns:
+                    biomass = df_intact['biomass_type'].iloc[0]
+                    wash = df_intact['wash_procedure'].iloc[0]
+                    ax.text(
+                        0.01, 0.98,
+                        f"Biomass: {biomass}\nWash: {wash}",
+                        transform=ax.transAxes,
+                        va='top',
+                        ha='left',
+                        fontsize=9,
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.6)
+                    )
+
+            plot_idx += 1
+
+        # Plot DNA concentration vs process step
+        if has_dna:
+            ax = axes[plot_idx]
+
+            # Filter data to ensure it's for this experiment
+            df_dna = df_test[df_test['experiment_id'] == exp_id].copy()
+
+            if df_dna.empty:
+                print(f"No DNA data found for experiment {exp_id}")
+            else:
+                # Sort by process step (assuming chronological order)
+                df_dna = df_dna.sort_index()
+
+                # Get x-axis indices and process steps
+                x_indices = range(len(df_dna))
+                process_steps = df_dna['process_step'].values
+
+                # Filter out zero or negative values for log scale
+                valid_obs = df_dna['dna_conc'] > 0
+                valid_pred = df_dna['dna_pred'] > 0
+
+                # Plot observed data
+                if valid_obs.any():
+                    # Get the indices where observed values are valid
+                    obs_indices = [i for i, is_valid in enumerate(valid_obs) if is_valid]
+                    obs_values = df_dna.loc[valid_obs, 'dna_conc'].values
+
+                    ax.scatter(
+                        obs_indices,
+                        obs_values,
+                        marker='o',
+                        color=self.color_schemes['observed'],
+                        label='Observed',
+                        s=50,
+                        zorder=5
+                    )
+
+                    if len(obs_indices) > 1:
+                        ax.plot(
+                            obs_indices,
+                            obs_values,
+                            linestyle='-',
+                            color=self.color_schemes['observed'],
+                            alpha=0.5,
+                            zorder=4
+                        )
+
+                # Plot predicted data
+                if valid_pred.any():
+                    # Get the indices where predicted values are valid
+                    pred_indices = [i for i, is_valid in enumerate(valid_pred) if is_valid]
+                    pred_values = df_dna.loc[valid_pred, 'dna_pred'].values
+
+                    ax.scatter(
+                        pred_indices,
+                        pred_values,
+                        marker='x',
+                        color=self.color_schemes['predicted'],
+                        label='Predicted',
+                        s=50,
+                        zorder=5
+                    )
+
+                    if len(pred_indices) > 1:
+                        ax.plot(
+                            pred_indices,
+                            pred_values,
+                            linestyle='--',
+                            color=self.color_schemes['predicted'],
+                            alpha=0.5,
+                            zorder=4
+                        )
+
+                # Set x-tick labels to process steps
+                ax.set_xticks(x_indices)
+                ax.set_xticklabels(process_steps, rotation=45, ha='right')
+
+                # Set logarithmic scale for y-axis if we have valid data
+                if valid_obs.any() or valid_pred.any():
+                    ax.set_yscale('log')
+
+                    # Format tick labels for log scale
+                    ax.yaxis.set_major_formatter(mticker.LogFormatter(base=10.0, labelOnlyBase=False))
+                    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
+                # Set labels and title
+                ax.set_ylabel('DNA Concentration [ng/µL] (Log Scale)')
+                ax.set_title(f'Experiment {exp_id}: DNA Concentration Test Predictions', fontsize=12)
+
+                # Add grid and legend
+                ax.grid(True, which='major', linestyle='-', alpha=0.6)
+                ax.grid(True, which='minor', linestyle=':', alpha=0.3)
+                ax.legend()
+
+        # Add common title
+        plt.suptitle(f'Cross-Validation Test Predictions for Experiment {exp_id}', fontsize=14, y=1.02)
+
+        # Adjust layout
+        plt.tight_layout()
+
+        # Save figure
+        filename = f"cv_test_predictions_exp_{exp_id}.png"
+        self._save_plot(fig, filename, subdir, tight_layout=False)
+        plt.close(fig)
+
+        return self.output_dir / subdir / filename
+
+    def create_comparison_chart(self, data: Dict[str, Dict[str, float]], title: str = "Model Comparison",
+                                subdir: str = None):
+        """
+        Create a bar chart comparing model metrics.
+
+        Args:
+            data: Dictionary with model names as keys and metric dictionaries as values
+            title: Chart title
+            subdir: Optional subdirectory to save within output_dir
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        if not data:
+            print("No data provided for comparison chart.")
+            return None
+
+        # Extract metrics for comparison
+        metrics = []
+        models = []
+
+        for model_name, metrics_dict in data.items():
+            models.append(model_name)
+            for metric_name, metric_value in metrics_dict.items():
+                if metric_name not in metrics:
+                    metrics.append(metric_name)
+
+        # Set up figure
+        fig, axes = plt.subplots(1, len(metrics), figsize=(4 * len(metrics), 5), sharey=False)
+        if len(metrics) == 1:
+            axes = [axes]  # Make axes iterable for single metric
+
+        # Color palette
+        colors = self.color_schemes['sequential'][:len(models)]
+
+        # Plot each metric
+        for i, metric in enumerate(metrics):
+            ax = axes[i]
+
+            # Extract values for this metric
+            values = []
+            for model in models:
+                values.append(data[model].get(metric, np.nan))
+
+            # Create bar plot
+            bars = ax.bar(models, values, color=colors)
+
+            # Add value labels on bars
+            for bar in bars:
+                height = bar.get_height()
+                if not pd.isna(height):
+                    formatter = '{:.4f}' if metric.startswith('R²') else '{:.2f}'
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2.,
+                        height * 1.01,
+                        formatter.format(height),
+                        ha='center',
+                        va='bottom',
+                        fontsize=9,
+                        rotation=0
+                    )
+
+            # Set labels and title
+            ax.set_xlabel('Model')
+            ax.set_ylabel(metric)
+            ax.set_title(f"{metric}")
+            ax.tick_params(axis='x', rotation=45)
+            ax.grid(True, linestyle='--', alpha=0.3, axis='y')
+
+            # Set ylim to start at 0 and have a small margin above max value
+            if not all(pd.isna(values)):
+                max_val = max([v for v in values if pd.notna(v)], default=1)
+                ax.set_ylim(0, max_val * 1.15)
+
+        # Set global title
+        fig.suptitle(title, fontsize=14, y=0.98)
+
+        # Save figure
+        filename = "model_comparison_chart.png"
+        self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
