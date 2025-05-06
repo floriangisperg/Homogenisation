@@ -123,6 +123,64 @@ def objective_dna_wash(params: list[float], df_linear_wash_decay: pd.DataFrame) 
 
     return sse if total_comparisons > 0 else 1e12
 
+# --- MODIFIED objective_dna_wash function ---
+def objective_dna_wash_step_dependent(params: list[float], df_linear_wash_decay: pd.DataFrame) -> float:
+    """
+    Objective for step-dependent wash efficiency factors W_1st and W_subsequent.
+    Expects df_linear_wash_decay with 'dna_conc', 'dna_pred_release'.
+    """
+    # Check if enough parameters were passed
+    if len(params) < 2:
+        print("Warning: objective_dna_wash_step_dependent received less than 2 parameters.")
+        return np.inf # Or handle appropriately
+    W_1st, W_subsequent = params[0], params[1] # Unpack parameters
+
+    # Basic constraints
+    if not (0 <= W_1st <= 1 and 0 <= W_subsequent <= 1):
+        return np.inf
+
+    sse = 0.0
+    total_comparisons = 0
+
+    # Group by experiment to process decay chains independently
+    for exp_id, group in df_linear_wash_decay.groupby("experiment_id"):
+        # Ensure data is sorted chronologically within the experiment
+        group_sorted = group.sort_index()
+        if group_sorted.empty or 'dna_pred_release' not in group_sorted.columns:
+            continue # Skip if no data or missing seed value
+
+        # Get the predicted DNA concentration after initial lysis (the seed for decay)
+        dna_pred_prev = group_sorted['dna_pred_release'].iloc[0]
+        if pd.isna(dna_pred_prev):
+            # print(f"Warning: NaN seed value 'dna_pred_release' for Exp {exp_id} in objective. Skipping group.")
+            continue # Cannot proceed without a starting value
+
+        is_first_wash_step = True # Flag to track the first wash step within this group
+
+        # Iterate through the wash steps *for this specific experiment*
+        for idx, row in group_sorted.iterrows():
+            # Determine which W parameter to use for the current prediction
+            W_current = W_1st if is_first_wash_step else W_subsequent
+
+            # Predict DNA concentration for the current step
+            dna_pred_current = dna_pred_prev * W_current
+
+            # Calculate SSE contribution if observed data exists
+            observed_dna = row["dna_conc"]
+            if pd.notna(observed_dna):
+                # Ensure prediction is non-negative before calculating residual
+                dna_pred_current_nonneg = max(0, dna_pred_current)
+                sse += (observed_dna - dna_pred_current_nonneg)**2
+                total_comparisons += 1
+
+            # Update the 'previous' prediction for the next iteration
+            dna_pred_prev = dna_pred_current # Use the calculated value (even if negative before clipping for SSE)
+            is_first_wash_step = False # It's no longer the first wash step after the first iteration
+
+    # Return SSE, or a large value if no comparisons were made
+    return sse if total_comparisons > 0 else 1e12
+
+
 
 def fit_intact_model(df_model: pd.DataFrame, initial_guess: list[float] = [1e-5, 2.0], method: str = "Nelder-Mead") -> tuple[float, float, float, bool]:
     """ Fits the model parameters k and alpha using the objective_intact function. """
