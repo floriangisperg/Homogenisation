@@ -4,8 +4,8 @@ import pandas as pd
 from scipy.optimize import minimize
 from typing import Dict, Any, Tuple, Optional, List, Union
 
-from .base_model import Model
-from ..data_processing import calculate_delta_F
+from analysis.models.base_model import Model
+from analysis.data_processing import calculate_delta_F
 
 
 class DNABaseModel(Model):

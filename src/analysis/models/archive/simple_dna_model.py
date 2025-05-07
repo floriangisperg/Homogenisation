@@ -4,7 +4,7 @@ import pandas as pd
 from scipy.optimize import minimize
 from typing import Dict, Any, List
 
-from .structure import DNAModel
+from analysis.models.structure import DNAModel
 
 
 class BasicDNAModel(DNAModel):

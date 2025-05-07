@@ -2,10 +2,10 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from typing import Dict, Any, Tuple, Optional, List, Union
+from typing import Dict, List
 
-from .dna_models import DNABaseModel
-from ..data_processing import calculate_delta_F
+from analysis.models.archive.dna_models import DNABaseModel
+from analysis.data_processing import calculate_delta_F
 
 
 class SimplifiedCompartmentModel(DNABaseModel):

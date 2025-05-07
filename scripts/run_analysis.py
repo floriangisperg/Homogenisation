@@ -51,15 +51,8 @@ try:
     # Import model classes
     from analysis.models.intact_model import IntactModel
     from analysis.models.dna_models import SingleWashDNAModel, StepDependentWashDNAModel
-    from analysis.models.alternative_dna_models import (
-        ContinuousDecayDNAModel,
-        ConcentrationDependentDNAModel,
-        SaturationDNAModel,
-        PhysicalAdsorptionDNAModel
-    )
-    # from analysis.models.two_compartment_dna_model import TwoCompartmentDNAModel
-    from analysis.models.two_compartment_dna_model import TwoCompartmentMechanisticModel
-    from analysis.models.simplified_compartment_model import SimplifiedCompartmentModel
+    from analysis.models.concentration_dependent_dna_model import ConcentrationDependentDNAModel
+
 
     # Import cross-validation
     from analysis.cross_validation import CrossValidator
@@ -86,10 +79,10 @@ AVAILABLE_MODEL_TYPES = [
     # "single_wash",
     # "step_dependent_wash",
     # "continuous_decay",
-    # "concentration_dependent",
+    "concentration_dependent",
     # "saturation",
     # "physical_adsorption",
-    "two_compartment",
+    # "two_compartment",
     # "simplified_compartment"
 ]
 
@@ -109,10 +102,10 @@ def create_dna_model(model_type):
         # "single_wash": SingleWashDNAModel,
         # "step_dependent_wash": StepDependentWashDNAModel,
         # "continuous_decay": ContinuousDecayDNAModel,
-        # "concentration_dependent": ConcentrationDependentDNAModel,
+        "concentration_dependent": ConcentrationDependentDNAModel,
         # "saturation": SaturationDNAModel,
         # "physical_adsorption": PhysicalAdsorptionDNAModel,
-        "two_compartment": TwoCompartmentMechanisticModel,
+        # "two_compartment": TwoCompartmentMechanisticModel,
         # "simplified_compartment": SimplifiedCompartmentModel
     }
 
