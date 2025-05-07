@@ -1191,3 +1191,112 @@ class VisualizationManager:
         except Exception as e:
             print(f"  Error saving observed data vs process step overview plot: {e}")
         plt.close(fig)
+
+    def plot_dna_vs_step(self, df: pd.DataFrame, config_name: str = "default", subdir: str = None):
+        """
+        Plot DNA concentration vs process steps for each experiment.
+
+        Args:
+            df: DataFrame with DNA concentrations, process steps, and experiment IDs
+            config_name: Name for configuration (used in title/filename)
+            subdir: Optional subdirectory within output_dir
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = ['experiment_id', 'process_step', 'dna_conc', 'dna_pred']
+        if not all(col in df.columns for col in required_cols):
+            missing = set(required_cols) - set(df.columns)
+            print(f"Missing columns for DNA vs step plot: {missing}")
+            return None
+
+        # Get unique experiment IDs
+        exp_ids = sorted([x for x in df['experiment_id'].unique() if pd.notna(x)])
+        n_exps = len(exp_ids)
+
+        if n_exps == 0:
+            print("No experiments found for DNA vs step plot.")
+            return None
+
+        # Define step order for sorting
+        step_order = {
+            'resuspended biomass': 0,
+            'initial lysis': 1,
+            '1st wash': 2,
+            '2nd wash': 3,
+            '3rd wash': 4,
+            '4th wash': 5
+        }
+
+        # Create figure with subplots (2 rows if more than 3 experiments)
+        rows = 2 if n_exps > 3 else 1
+        cols = (n_exps + rows - 1) // rows
+
+        fig, axes = plt.subplots(rows, cols, figsize=(5 * cols, 4 * rows), squeeze=False)
+        axes = axes.flatten()
+
+        # Plot each experiment
+        for i, exp_id in enumerate(exp_ids):
+            if i >= len(axes):
+                break
+
+            ax = axes[i]
+            exp_data = df[df['experiment_id'] == exp_id].copy()
+
+            # Sort by process step
+            exp_data['step_order'] = exp_data['process_step'].map(
+                lambda x: step_order.get(str(x).lower(), 999))
+            exp_data = exp_data.sort_values('step_order')
+
+            # Get process steps for x-axis
+            x_steps = exp_data['process_step'].values
+
+            # Plot observed values
+            valid_obs = exp_data['dna_conc'] > 0
+            if valid_obs.any():
+                ax.plot(range(len(x_steps)), exp_data.loc[valid_obs, 'dna_conc'],
+                        'o-', color='blue', markersize=8, label='Observed')
+
+            # Plot predicted values
+            valid_pred = exp_data['dna_pred'] > 0
+            if valid_pred.any():
+                ax.plot(range(len(x_steps)), exp_data.loc[valid_pred, 'dna_pred'],
+                        'x--', color='red', markersize=8, label='Predicted')
+
+            # Set log scale for y-axis
+            ax.set_yscale('log')
+
+            # Set x-axis labels
+            ax.set_xticks(range(len(x_steps)))
+            ax.set_xticklabels(x_steps, rotation=45, ha='right')
+
+            # Get biomass type and wash procedure for title
+            if 'biomass_type' in exp_data.columns and 'wash_procedure' in exp_data.columns:
+                biomass = exp_data['biomass_type'].iloc[0]
+                wash = exp_data['wash_procedure'].iloc[0]
+                ax.set_title(f'Exp {exp_id}: {biomass}, {wash}')
+            else:
+                ax.set_title(f'Experiment {exp_id}')
+
+            # Add labels
+            if i % cols == 0:  # First column
+                ax.set_ylabel('DNA Concentration [ng/µL]')
+
+            # Add legend
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        # Hide unused subplots
+        for i in range(n_exps, len(axes)):
+            axes[i].axis('off')
+
+        # Add title
+        plt.suptitle(f'DNA Concentration vs Process Steps ({config_name})', fontsize=16, y=1.02)
+        plt.tight_layout()
+
+        # Save figure
+        filename = f"dna_vs_process_steps_{config_name}.png"
+        self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
