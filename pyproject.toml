@@ -16,7 +16,8 @@ dependencies = [
     "beartype",
     "openpyxl",
     "scikit-learn",
-    "gplearn"
+    "gplearn",
+    "black>=25.1.0",
 ]
 
 [project.optional-dependencies]

@@ -17,38 +17,28 @@ class VisualizationManager:
     Consolidates functionality from the original visualization.py and plotting.py.
     """
 
-    def __init__(self, output_dir: Path, style: str = "seaborn-v0_8-whitegrid"):
+    def __init__(self, output_dir: Path, style: str = "darkgrid"):
         """
         Initialize the visualization manager.
 
         Args:
             output_dir: Base directory for saving plots
-            style: Matplotlib style to use
+            style: Seaborn style to use
         """
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Set style
-        try:
-            plt.style.use(style)
-        except:
-            plt.style.use('ggplot')  # Fallback style
-
-        # Set default font to one with better Unicode support
-        try:
-            plt.rcParams['font.family'] = 'DejaVu Sans'
-            plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Bitstream Vera Sans', 'Verdana', 'Arial']
-        except Exception as e:
-            print(f"Warning: Could not set default font: {e}")
+        # Set seaborn style
+        sns.set_style(style)
 
         # Color schemes
         self.color_schemes = {
-            'primary': 'royalblue',
-            'secondary': 'crimson',
-            'tertiary': 'forestgreen',
-            'observed': 'blue',
-            'predicted': 'red',
-            'sequential': sns.color_palette("Set2")
+            "primary": "royalblue",
+            "secondary": "crimson",
+            "tertiary": "forestgreen",
+            "observed": "blue",
+            "predicted": "red",
+            "sequential": sns.color_palette("Set2"),
         }
 
     def _save_plot(self, fig, filename: str, subdir: str = None, dpi: int = 300, tight_layout: bool = True):
@@ -79,9 +69,11 @@ class VisualizationManager:
             print(f"  Error saving plot: {e}")
             return False
 
-    def plot_intact_parity(self, df: pd.DataFrame, subdir: str = None, title: str = None):
+    def plot_intact_parity(
+        self, df: pd.DataFrame, subdir: str = None, title: str = None
+    ):
         """
-        Create parity plot for intact fraction predictions.
+        Create parity plot for intact fraction predictions using improved styling.
 
         Args:
             df: DataFrame with 'observed_frac', 'intact_frac_pred', etc.
@@ -91,7 +83,12 @@ class VisualizationManager:
         Returns:
             Path to saved plot or None if failed
         """
-        required_cols = ['observed_frac', 'intact_frac_pred', 'wash_procedure', 'biomass_type']
+        required_cols = [
+            "observed_frac",
+            "intact_frac_pred",
+            "wash_procedure",
+            "biomass_type",
+        ]
         if not all(col in df.columns for col in required_cols):
             missing = set(required_cols) - set(df.columns)
             print(f"Missing columns for intact parity plot: {missing}")
@@ -102,65 +99,73 @@ class VisualizationManager:
             print("Warning: No valid data for intact parity plot.")
             return None
 
-        # Set up figure
-        fig, ax = plt.subplots(figsize=(7, 6))
+        # Set up figure with dark grid style
+        sns.set_style("darkgrid")
+        fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
 
-        # Define markers and colors
+        # Define markers for biomass types
         markers = {"fresh biomass": "o", "frozen biomass": "s"}
+
+        # Get unique wash procedures and create a color palette
         wash_types = plot_data["wash_procedure"].unique()
-        palette = self.color_schemes['sequential'][:len(wash_types)]
+        palette = sns.color_palette("Set2", n_colors=len(wash_types))
         color_map = dict(zip(wash_types, palette))
 
-        # Plot data points
+        # Plot each combination of wash and biomass
         legend_elements = []
-        plotted_labels = set()
-
         for wash in wash_types:
-            wash_color = color_map.get(wash, 'black')
-            for biomass_key, biomass_marker in markers.items():
-                subset = plot_data[(plot_data["wash_procedure"] == wash) &
-                                   (plot_data["biomass_type"] == biomass_key)]
+            for biomass in markers.keys():
+                subset = plot_data[
+                    (plot_data["wash_procedure"] == wash)
+                    & (plot_data["biomass_type"] == biomass)
+                ]
                 if not subset.empty:
-                    ax.scatter(subset["observed_frac"], subset["intact_frac_pred"],
-                               marker=biomass_marker, color=wash_color,
-                               edgecolor="k", s=50, alpha=0.9)
+                    ax.scatter(
+                        subset["observed_frac"],
+                        subset["intact_frac_pred"],
+                        marker=markers[biomass],
+                        color=color_map[wash],
+                        edgecolor="k",
+                        s=40,
+                        alpha=0.9,
+                    )
 
-                    # Add to legend if not already there
-                    label = f"{wash}, {biomass_key}"
-                    if label not in plotted_labels:
-                        legend_elements.append(
-                            Line2D([0], [0], marker=biomass_marker, color='w',
-                                   label=label, markerfacecolor=wash_color,
-                                   markeredgecolor='k', markersize=7)
+                    # Add to legend
+                    legend_elements.append(
+                        Line2D(
+                            [0],
+                            [0],
+                            marker=markers[biomass],
+                            color="w",
+                            markerfacecolor=color_map[wash],
+                            markeredgecolor="k",
+                            markersize=8,
+                            label=f"{wash}, {biomass}",
                         )
-                        plotted_labels.add(label)
+                    )
 
         # Plot y=x line
         lims = [0, 1]
-        ax.plot(lims, lims, 'k--', lw=1.5)
-        legend_elements.append(Line2D([0], [0], color='k', linestyle='--', lw=1.5, label='y = x'))
+        ax.plot(lims, lims, "k--", lw=1.5)
+        legend_elements.append(
+            Line2D([0], [0], color="k", linestyle="--", lw=1.5, label="y = x")
+        )
 
         # Labels and formatting
         ax.set_xlabel("Observed Fraction Intact", fontsize=12)
         ax.set_ylabel("Predicted Fraction Intact", fontsize=12)
 
         if title:
-            ax.set_title(title, fontsize=14, pad=15)
+            ax.set_title(title, fontsize=14)
         else:
-            ax.set_title("Parity Plot: Observed vs. Predicted Intact Fraction", fontsize=14, pad=15)
+            ax.set_title("Observed vs. Predicted Fraction Intact", fontsize=14)
 
-        ax.set_xlim([-0.05, 1.05])
-        ax.set_ylim([-0.05, 1.05])
-        ax.set_xticks(np.arange(0, 1.1, 0.2))
-        ax.set_yticks(np.arange(0, 1.1, 0.2))
-        ax.tick_params(axis='both', labelsize=10)
+        ax.set_xlim(lims)
+        ax.set_ylim(lims)
+        ax.set_aspect("equal")
 
-        # Legend
-        ax.legend(handles=legend_elements, fontsize=9, title="Condition",
-                  title_fontsize=10, bbox_to_anchor=(1.05, 1), loc='upper left')
-
-        ax.grid(True, linestyle='--', alpha=0.6)
-        ax.set_aspect('equal', adjustable='box')
+        # Add legend
+        ax.legend(handles=legend_elements, fontsize=10)
 
         # Save figure
         filename = "intact_parity_plot.png"
@@ -169,84 +174,761 @@ class VisualizationManager:
 
         return self.output_dir / (subdir or "") / filename
 
-    def plot_dna_parity(self, df: pd.DataFrame, subdir: str = None, title: str = None):
+    # In plot_dna_parity method, add log_scale parameter
+    def plot_dna_parity(
+        self,
+        df: pd.DataFrame,
+        subdir: str = None,
+        title: str = None,
+        log_scale: bool = True,
+    ):
         """
-        Create parity plot for DNA concentration predictions (log-log scale).
+        Create parity plot for DNA concentration predictions with improved styling.
 
         Args:
             df: DataFrame with 'dna_conc', 'dna_pred', etc.
             subdir: Optional subdirectory to save within output_dir
             title: Optional title override
+            log_scale: Whether to use log scaling for axes (default: True)
 
         Returns:
             Path to saved plot or None if failed
         """
-        required_cols = ['dna_conc', 'dna_pred', 'wash_procedure', 'biomass_type', 'process_step']
+        required_cols = [
+            "dna_conc",
+            "dna_pred",
+            "wash_procedure",
+            "biomass_type",
+            "process_step",
+        ]
         if not all(col in df.columns for col in required_cols):
             missing = set(required_cols) - set(df.columns)
             print(f"Missing columns for DNA parity plot: {missing}")
             return None
 
-        # Filter data and remove negative or zero values (incompatible with log scale)
-        plot_data_base = df.dropna(subset=['dna_conc', 'dna_pred']).copy()
-        plot_data_base = plot_data_base[plot_data_base['process_step'].str.lower() != "resuspended biomass"]
-        plot_data = plot_data_base[(plot_data_base['dna_conc'] > 0) & (plot_data_base['dna_pred'] > 0)].copy()
+        # Filter data - exclude resuspended biomass and handle log scale requirements
+        plot_data_base = df.dropna(subset=["dna_conc", "dna_pred"]).copy()
+        plot_data_base = plot_data_base[
+            plot_data_base["process_step"].str.lower() != "resuspended biomass"
+        ]
 
-        if plot_data.empty:
-            print(f"Warning: No valid positive data points found for DNA parity plot. Skipping.")
-            return None
+        if log_scale:
+            # For log scale, filter out non-positive values
+            plot_data = plot_data_base[
+                (plot_data_base["dna_conc"] > 0) & (plot_data_base["dna_pred"] > 0)
+            ].copy()
+            if plot_data.empty:
+                print(
+                    f"Warning: No valid positive data points found for DNA log parity plot. Skipping."
+                )
+                return None
+        else:
+            # For linear scale, we can keep zeros but not negatives
+            plot_data = plot_data_base[
+                (plot_data_base["dna_conc"] >= 0) & (plot_data_base["dna_pred"] >= 0)
+            ].copy()
+            if plot_data.empty:
+                print(
+                    f"Warning: No valid data points found for DNA linear parity plot. Skipping."
+                )
+                return None
 
-        # Set up figure
-        fig, ax = plt.subplots(figsize=(6.5, 5.5))
+        # Set up figure with dark grid style
+        sns.set_style("darkgrid")
+        fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
 
-        # Add user-friendly column names for the legend
-        plot_data['Wash Type'] = plot_data['wash_procedure'].str.replace(" wash", "")
-        plot_data['Biomass'] = plot_data['biomass_type'].str.replace(" biomass", "").str.capitalize()
+        # Define markers for biomass types
+        markers = {"fresh biomass": "o", "frozen biomass": "s"}
 
-        # Create scatterplot
-        sns.scatterplot(
-            data=plot_data, x="dna_conc", y="dna_pred",
-            hue="Wash Type", style="Biomass",
-            markers={"Fresh": "o", "Frozen": "s"},
-            palette=self.color_schemes['sequential'],
-            s=50, edgecolor="k", alpha=0.8, ax=ax
+        # Get unique wash procedures and create a color palette
+        wash_types = plot_data["wash_procedure"].unique()
+        palette = sns.color_palette("Set2", n_colors=len(wash_types))
+        color_map = dict(zip(wash_types, palette))
+
+        # Plot each combination of wash and biomass
+        legend_elements = []
+        for wash in wash_types:
+            for biomass in markers.keys():
+                subset = plot_data[
+                    (plot_data["wash_procedure"] == wash)
+                    & (plot_data["biomass_type"] == biomass)
+                ]
+                if not subset.empty:
+                    ax.scatter(
+                        subset["dna_conc"],
+                        subset["dna_pred"],
+                        marker=markers[biomass],
+                        color=color_map[wash],
+                        edgecolor="k",
+                        s=40,
+                        alpha=0.9,
+                    )
+
+                    # Add to legend
+                    legend_elements.append(
+                        Line2D(
+                            [0],
+                            [0],
+                            marker=markers[biomass],
+                            color="w",
+                            markerfacecolor=color_map[wash],
+                            markeredgecolor="k",
+                            markersize=8,
+                            label=f"{wash}, {biomass}",
+                        )
+                    )
+
+        # Set scales and limits
+        if log_scale:
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+
+            # Plot y=x line for log scale
+            min_val = (
+                min(plot_data["dna_conc"].min(), plot_data["dna_pred"].min()) * 0.8
+            )
+            max_val = (
+                max(plot_data["dna_conc"].max(), plot_data["dna_pred"].max()) * 1.2
+            )
+            ax.plot([min_val, max_val], [min_val, max_val], "k--", lw=1.5)
+
+            # Set log-friendly limits
+            ax.set_xlim(min_val, max_val)
+            ax.set_ylim(min_val, max_val)
+        else:
+            # Plot y=x line for linear scale
+            max_x = plot_data["dna_conc"].max() * 1.1
+            max_y = plot_data["dna_pred"].max() * 1.1
+            max_val = max(max_x, max_y)
+            ax.plot([0, max_val], [0, max_val], "k--", lw=1.5)
+
+            # Set linear-friendly limits
+            ax.set_xlim(0, max_val)
+            ax.set_ylim(0, max_val)
+
+        # Add y=x line to legend
+        legend_elements.append(
+            Line2D([0], [0], color="k", linestyle="--", lw=1.5, label="y = x")
         )
 
-        # Set log scales
-        ax.set(xscale="log", yscale="log")
-
-        # Plot y=x line
-        min_val = min(plot_data["dna_conc"].min(), plot_data["dna_pred"].min()) * 0.8
-        max_val = max(plot_data["dna_conc"].max(), plot_data["dna_pred"].max()) * 1.2
-        ax.plot([min_val, max_val], [min_val, max_val], 'k--', lw=1.5, zorder=1)
-
         # Labels and formatting
-        ax.set_xlim(min_val, max_val)
-        ax.set_ylim(min_val, max_val)
-        ax.set_xlabel("Observed DNA [ng/µL] (Log Scale)", fontsize=11)
-        ax.set_ylabel("Predicted DNA [ng/µL] (Log Scale)", fontsize=11)
+        ax.set_xlabel("Observed DNA Concentration [ng/µL]", fontsize=12)
+        ax.set_ylabel("Predicted DNA Concentration [ng/µL]", fontsize=12)
 
         if title:
-            ax.set_title(title, fontsize=13, pad=15)
+            ax.set_title(title, fontsize=14)
         else:
-            ax.set_title("DNA Concentration Parity Plot (Log-Log Scale)", fontsize=13, pad=15)
+            ax.set_title("Observed vs. Predicted DNA Concentration", fontsize=14)
 
-        # Format tick labels for log scale
-        ax.xaxis.set_major_formatter(mticker.LogFormatter(base=10.0, labelOnlyBase=False))
-        ax.yaxis.set_major_formatter(mticker.LogFormatter(base=10.0, labelOnlyBase=False))
-        ax.xaxis.set_minor_formatter(mticker.NullFormatter())
-        ax.yaxis.set_minor_formatter(mticker.NullFormatter())
-        ax.tick_params(axis='both', labelsize=9)
-
-        # Legend and grid
-        plt.legend(title="Condition", title_fontsize=10, fontsize=9,
-                   bbox_to_anchor=(1.03, 1), loc='upper left')
-        ax.grid(True, which='major', linestyle='-', alpha=0.6)
-        ax.grid(True, which='minor', linestyle=':', alpha=0.3)
+        # Add legend
+        ax.legend(handles=legend_elements, fontsize=10)
 
         # Save figure
-        filename = "dna_parity_plot_loglog.png"
+        filename = f"dna_parity_plot_{'log' if log_scale else 'linear'}.png"
         self._save_plot(fig, filename, subdir)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    # New method to plot intact fraction vs process step in a grid
+    def plot_intact_vs_process_step(
+        self,
+        df: pd.DataFrame,
+        subdir: str = None,
+        title: str = None,
+        cv_mode: bool = False,
+    ):
+        """
+        Create grid plot showing intact fraction over process steps for all experiments using improved layout.
+
+        Args:
+            df: DataFrame with intact fraction data
+            subdir: Optional subdirectory to save within output_dir
+            title: Optional title override
+            cv_mode: Whether in cross-validation mode (highlights test data)
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = [
+            "experiment_id",
+            "process_step",
+            "observed_frac",
+            "intact_frac_pred",
+            "biomass_type",
+            "wash_procedure",
+        ]
+
+        if not all(col in df.columns for col in required_cols):
+            missing = set(required_cols) - set(df.columns)
+            print(f"Missing columns for intact vs process step plot: {missing}")
+            return None
+
+        df_valid = df.dropna(subset=["experiment_id"]).copy()
+        if df_valid.empty:
+            print("No valid data with experiment_id for intact vs process step plot.")
+            return None
+
+        # Get unique experiment IDs
+        exp_ids = sorted(
+            [int(x) for x in df_valid["experiment_id"].unique() if pd.notna(x)]
+        )
+        n_exps = len(exp_ids)
+
+        if n_exps == 0:
+            print("No experiments found for intact vs process step plot.")
+            return None
+
+        # Set Seaborn style
+        sns.set_style("darkgrid")
+
+        # --- Parameters for fixed subplot dimensions (in inches) ---
+        subplot_width = 2  # width of each subplot
+        subplot_height = 2  # height of each subplot
+        h_spacing = 0.5  # horizontal spacing between subplots
+        v_spacing = 1.0  # vertical spacing between rows
+        left_margin = 1  # left margin of the figure
+        right_margin = 1  # right margin
+        bottom_margin = 1  # bottom margin
+        top_margin = 1.2  # top margin
+
+        # --- Determine layout based on number of experiments ---
+        if n_exps <= 3:
+            n_top = n_exps
+            n_bottom = 0
+        elif n_exps <= 4:
+            n_top = 2
+            n_bottom = 2
+        elif n_exps <= 7:
+            n_top = 3
+            n_bottom = min(4, n_exps - n_top)
+        else:  # More than 7 experiments
+            n_top = 4
+            n_bottom = 4
+            print(f"Warning: More than 8 experiments ({n_exps}), only showing first 8.")
+            exp_ids = exp_ids[:8]
+            n_exps = 8
+
+        has_top_row = n_top > 0
+        has_bottom_row = n_bottom > 0
+
+        # Calculate layout dimensions
+        if has_top_row:
+            total_top_width = n_top * subplot_width + (n_top - 1) * h_spacing
+        else:
+            total_top_width = 0
+
+        if has_bottom_row:
+            total_bottom_width = n_bottom * subplot_width + (n_bottom - 1) * h_spacing
+        else:
+            total_bottom_width = 0
+
+        # Figure width is the maximum row width plus margins
+        fig_width = (
+            max(total_top_width, total_bottom_width) + left_margin + right_margin
+        )
+
+        # Figure height depends on how many rows we have
+        if has_top_row and has_bottom_row:
+            fig_height = (
+                top_margin + subplot_height + v_spacing + subplot_height + bottom_margin
+            )
+        elif has_top_row or has_bottom_row:
+            fig_height = top_margin + subplot_height + bottom_margin
+        else:
+            fig_height = (
+                top_margin + bottom_margin
+            )  # Should never happen as we always have at least 1 experiment
+
+        # Create figure
+        fig = plt.figure(figsize=(fig_width, fig_height), dpi=300)
+
+        # --- Create axes for each row ---
+        axes_list = []
+
+        if has_top_row:
+            top_y = (
+                (bottom_margin + subplot_height + v_spacing) / fig_height
+                if has_bottom_row
+                else bottom_margin / fig_height
+            )
+            top_h = subplot_height / fig_height
+            top_left_offset = (
+                left_margin
+                + (fig_width - left_margin - right_margin - total_top_width) / 2
+            )
+
+            for i in range(n_top):
+                ax_left = (
+                    top_left_offset + i * (subplot_width + h_spacing)
+                ) / fig_width
+                ax = fig.add_axes([ax_left, top_y, subplot_width / fig_width, top_h])
+                axes_list.append(ax)
+
+        if has_bottom_row:
+            bottom_y = bottom_margin / fig_height
+            bottom_h = subplot_height / fig_height
+            bottom_left_offset = (
+                left_margin
+                + (fig_width - left_margin - right_margin - total_bottom_width) / 2
+            )
+
+            for i in range(n_bottom):
+                ax_left = (
+                    bottom_left_offset + i * (subplot_width + h_spacing)
+                ) / fig_width
+                ax = fig.add_axes(
+                    [ax_left, bottom_y, subplot_width / fig_width, bottom_h]
+                )
+                axes_list.append(ax)
+
+        # Divide experiment IDs between rows
+        top_experiments = exp_ids[:n_top]
+        bottom_experiments = exp_ids[n_top : n_top + n_bottom]
+
+        # Define standard process step order
+        step_order = {
+            "resuspended biomass": 0,
+            "initial lysis": 1,
+            "1st wash": 2,
+            "2nd wash": 3,
+            "3rd wash": 4,
+            "4th wash": 5,
+        }
+
+        # Set colors
+        observed_color = self.color_schemes["primary"]
+        predicted_color = self.color_schemes["secondary"]
+
+        # Plot each experiment
+        for i, (ax, exp_id) in enumerate(zip(axes_list, exp_ids)):
+            exp_data = df_valid[df_valid["experiment_id"] == exp_id].copy()
+
+            # Check if we have any data
+            if exp_data.empty:
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"No data for Exp {exp_id}",
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                )
+                ax.set_title(f"Experiment {exp_id}")
+                continue
+
+            # Sort by process step
+            exp_data["step_order"] = exp_data["process_step"].map(
+                lambda x: step_order.get(str(x).lower(), 999)
+            )
+            exp_data = exp_data.sort_values("step_order")
+
+            # Get process steps for x-axis
+            x_steps = exp_data["process_step"].values
+
+            # Get biomass type and wash procedure for annotation
+            biomass = exp_data["biomass_type"].iloc[0]
+            wash = exp_data["wash_procedure"].iloc[0]
+
+            # For CV mode, highlight test data if available
+            if cv_mode and "is_test" in exp_data.columns:
+                # Plot training data with lower alpha
+                train_data = exp_data[~exp_data["is_test"]].copy()
+                if not train_data.empty:
+                    valid_obs = train_data["observed_frac"].notna()
+                    if valid_obs.any():
+                        ax.plot(
+                            train_data["process_step"].values,
+                            train_data.loc[valid_obs, "observed_frac"],
+                            "o--",
+                            color=observed_color,
+                            alpha=0.3,
+                            markersize=6,
+                        )
+
+                    valid_pred = train_data["intact_frac_pred"].notna()
+                    if valid_pred.any():
+                        ax.plot(
+                            train_data["process_step"].values,
+                            train_data.loc[valid_pred, "intact_frac_pred"],
+                            "x--",
+                            color=predicted_color,
+                            alpha=0.3,
+                            markersize=6,
+                        )
+
+                # Plot test data with full alpha
+                test_data = exp_data[exp_data["is_test"]].copy()
+                if not test_data.empty:
+                    valid_obs = test_data["observed_frac"].notna()
+                    if valid_obs.any():
+                        ax.plot(
+                            test_data["process_step"].values,
+                            test_data.loc[valid_obs, "observed_frac"],
+                            "o-",
+                            color=observed_color,
+                            linewidth=2,
+                            markersize=8,
+                        )
+
+                    valid_pred = test_data["intact_frac_pred"].notna()
+                    if valid_pred.any():
+                        ax.plot(
+                            test_data["process_step"].values,
+                            test_data.loc[valid_pred, "intact_frac_pred"],
+                            "x--",
+                            color=predicted_color,
+                            linewidth=2,
+                            markersize=8,
+                        )
+            else:
+                # Standard plot (not CV)
+                valid_obs = exp_data["observed_frac"].notna()
+                if valid_obs.any():
+                    ax.plot(
+                        exp_data["process_step"].values,
+                        exp_data.loc[valid_obs, "observed_frac"],
+                        "o-",
+                        color=observed_color,
+                        linewidth=2,
+                        markersize=8,
+                    )
+
+                valid_pred = exp_data["intact_frac_pred"].notna()
+                if valid_pred.any():
+                    ax.plot(
+                        exp_data["process_step"].values,
+                        exp_data.loc[valid_pred, "intact_frac_pred"],
+                        "x--",
+                        color=predicted_color,
+                        linewidth=2,
+                        markersize=8,
+                    )
+
+            # Formatting
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+            ax.set_ylim(-0.05, 1.05)
+
+            # Add process step information
+            ax.text(
+                0.95,
+                0.95,
+                f"{wash}\n{biomass}",
+                transform=ax.transAxes,
+                verticalalignment="top",
+                horizontalalignment="right",
+                fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.6),
+            )
+
+            ax.set_title(f"Experiment {exp_id}", fontsize=10)
+
+            # Only add y-label for leftmost plots
+            if (has_top_row and i == 0) or (not has_top_row and i == 0):
+                ax.set_ylabel("Fraction Intact", fontsize=10)
+            else:
+                ax.set_ylabel("")
+
+            # Only add x-label for bottom row
+            if (has_bottom_row and i >= n_top) or (not has_bottom_row):
+                ax.set_xlabel("Process Step", fontsize=10)
+            else:
+                ax.set_xlabel("")
+
+        # Common legend
+        observed_handle = Line2D(
+            [],
+            [],
+            marker="o",
+            color=observed_color,
+            linestyle="-",
+            markersize=6,
+            label="Observed",
+        )
+        predicted_handle = Line2D(
+            [],
+            [],
+            marker="x",
+            color=predicted_color,
+            linestyle="--",
+            markersize=6,
+            label="Predicted",
+        )
+
+        fig.legend(
+            handles=[observed_handle, predicted_handle],
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1 - (top_margin / 3) / fig_height),
+            ncol=2,
+            fontsize=10,
+        )
+
+        # Add global title if provided
+        if title:
+            fig.suptitle(title, fontsize=14, y=0.98)
+
+        # Save figure
+        filename = "intact_vs_process_steps_grid.png"
+        self._save_plot(fig, filename, subdir, tight_layout=False)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    # New method to plot DNA vs process step with option for log or linear scale
+    def plot_dna_vs_process_step_grid(
+        self,
+        df: pd.DataFrame,
+        log_scale: bool = True,
+        subdir: str = None,
+        title: str = None,
+        cv_mode: bool = False,
+    ):
+        """
+        Create grid plot showing DNA concentration over process steps for all experiments.
+
+        Args:
+            df: DataFrame with DNA concentration data
+            log_scale: Whether to use log scale for y-axis (default: True)
+            subdir: Optional subdirectory to save within output_dir
+            title: Optional title override
+            cv_mode: Whether in cross-validation mode (highlights test data)
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = [
+            "experiment_id",
+            "process_step",
+            "dna_conc",
+            "dna_pred",
+            "biomass_type",
+            "wash_procedure",
+        ]
+
+        if not all(col in df.columns for col in required_cols):
+            missing = set(required_cols) - set(df.columns)
+            print(f"Missing columns for DNA vs process step plot: {missing}")
+            return None
+
+        df_valid = df.dropna(subset=["experiment_id"]).copy()
+        if df_valid.empty:
+            print("No valid data with experiment_id for DNA vs process step plot.")
+            return None
+
+        # Get unique experiment IDs
+        exp_ids = sorted(
+            [int(x) for x in df_valid["experiment_id"].unique() if pd.notna(x)]
+        )
+        n_exps = len(exp_ids)
+
+        if n_exps == 0:
+            print("No experiments found for DNA vs process step plot.")
+            return None
+
+        # Create grid layout
+        n_cols = min(3, n_exps)
+        n_rows = (n_exps + n_cols - 1) // n_cols
+
+        fig, axes = plt.subplots(
+            n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows), squeeze=False
+        )
+        axes = axes.flatten()
+
+        # Define standard process step order
+        step_order = {
+            "resuspended biomass": 0,
+            "initial lysis": 1,
+            "1st wash": 2,
+            "2nd wash": 3,
+            "3rd wash": 4,
+            "4th wash": 5,
+        }
+
+        # Plot each experiment
+        for i, exp_id in enumerate(exp_ids):
+            if i >= len(axes):
+                break
+
+            ax = axes[i]
+            exp_data = df_valid[df_valid["experiment_id"] == exp_id].copy()
+
+            # Check if we have any data
+            if exp_data.empty:
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"No data for Exp {exp_id}",
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                )
+                ax.set_title(f"Experiment {exp_id}")
+                continue
+
+            # Sort by process step
+            exp_data["step_order"] = exp_data["process_step"].map(
+                lambda x: step_order.get(str(x).lower(), 999)
+            )
+            exp_data = exp_data.sort_values("step_order")
+
+            # Get biomass type and wash procedure for title
+            biomass = exp_data["biomass_type"].iloc[0]
+            wash = exp_data["wash_procedure"].iloc[0]
+
+            # For CV mode, highlight test data if available
+            if cv_mode and "is_test" in exp_data.columns:
+                # Filter data based on log scale if needed
+                if log_scale:
+                    train_data = exp_data[
+                        (~exp_data["is_test"])
+                        & (exp_data["dna_conc"] > 0)
+                        & (exp_data["dna_pred"] > 0)
+                    ].copy()
+                    test_data = exp_data[
+                        (exp_data["is_test"])
+                        & (exp_data["dna_conc"] > 0)
+                        & (exp_data["dna_pred"] > 0)
+                    ].copy()
+                else:
+                    train_data = exp_data[
+                        (~exp_data["is_test"])
+                        & (exp_data["dna_conc"] >= 0)
+                        & (exp_data["dna_pred"] >= 0)
+                    ].copy()
+                    test_data = exp_data[
+                        (exp_data["is_test"])
+                        & (exp_data["dna_conc"] >= 0)
+                        & (exp_data["dna_pred"] >= 0)
+                    ].copy()
+
+                # Plot training data with lower alpha
+                if not train_data.empty:
+                    valid_obs = train_data["dna_conc"].notna()
+                    if valid_obs.any():
+                        ax.plot(
+                            train_data.loc[valid_obs, "process_step"],
+                            train_data.loc[valid_obs, "dna_conc"],
+                            "o--",
+                            color="blue",
+                            alpha=0.3,
+                            markersize=6,
+                            label="Train (Observed)",
+                        )
+
+                    valid_pred = train_data["dna_pred"].notna()
+                    if valid_pred.any():
+                        ax.plot(
+                            train_data.loc[valid_pred, "process_step"],
+                            train_data.loc[valid_pred, "dna_pred"],
+                            "x--",
+                            color="red",
+                            alpha=0.3,
+                            markersize=6,
+                            label="Train (Predicted)",
+                        )
+
+                # Plot test data with full alpha
+                if not test_data.empty:
+                    valid_obs = test_data["dna_conc"].notna()
+                    if valid_obs.any():
+                        ax.plot(
+                            test_data.loc[valid_obs, "process_step"],
+                            test_data.loc[valid_obs, "dna_conc"],
+                            "o-",
+                            color="blue",
+                            linewidth=2,
+                            markersize=8,
+                            label="Test (Observed)",
+                        )
+
+                    valid_pred = test_data["dna_pred"].notna()
+                    if valid_pred.any():
+                        ax.plot(
+                            test_data.loc[valid_pred, "process_step"],
+                            test_data.loc[valid_pred, "dna_pred"],
+                            "x--",
+                            color="red",
+                            linewidth=2,
+                            markersize=8,
+                            label="Test (Predicted)",
+                        )
+            else:
+                # Standard plot (not CV)
+                if log_scale:
+                    valid_data = exp_data[
+                        (exp_data["dna_conc"] > 0) | (exp_data["dna_pred"] > 0)
+                    ].copy()
+                else:
+                    valid_data = exp_data[
+                        (exp_data["dna_conc"] >= 0) | (exp_data["dna_pred"] >= 0)
+                    ].copy()
+
+                if not valid_data.empty:
+                    valid_obs = valid_data["dna_conc"].notna()
+                    if valid_obs.any():
+                        ax.plot(
+                            valid_data.loc[valid_obs, "process_step"],
+                            valid_data.loc[valid_obs, "dna_conc"],
+                            "o-",
+                            color="blue",
+                            linewidth=2,
+                            markersize=8,
+                            label="Observed",
+                        )
+
+                    valid_pred = valid_data["dna_pred"].notna()
+                    if valid_pred.any():
+                        ax.plot(
+                            valid_data.loc[valid_pred, "process_step"],
+                            valid_data.loc[valid_pred, "dna_pred"],
+                            "x--",
+                            color="red",
+                            linewidth=2,
+                            markersize=8,
+                            label="Predicted",
+                        )
+
+            # Set log scale if requested
+            if log_scale:
+                ax.set_yscale("log")
+
+            # Formatting
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha="right")
+            ax.set_title(f"Exp {exp_id}: {biomass}, {wash}")
+            ax.grid(True, alpha=0.3)
+
+            # Only add x-label for bottom row
+            if i >= n_exps - n_cols:
+                ax.set_xlabel("Process Step")
+
+            # Only add y-label for leftmost column
+            if i % n_cols == 0:
+                scale_text = " (Log Scale)" if log_scale else ""
+                ax.set_ylabel(f"DNA Conc. [ng/µL]{scale_text}")
+
+            # Add legend only for first plot to avoid clutter
+            if i == 0:
+                ax.legend(fontsize=8)
+
+        # Hide unused axes
+        for i in range(n_exps, len(axes)):
+            axes[i].set_visible(False)
+
+        # Add global title
+        scale_text = " (Log Scale)" if log_scale else " (Linear Scale)"
+        if title:
+            plt.suptitle(f"{title}{scale_text}", fontsize=16, y=1.02)
+        else:
+            plt.suptitle(
+                f"DNA Concentration vs Process Steps{scale_text}", fontsize=16, y=1.02
+            )
+
+        plt.tight_layout()
+
+        # Save figure
+        scale_suffix = "log" if log_scale else "linear"
+        filename = f"dna_vs_process_steps_grid_{scale_suffix}.png"
+        self._save_plot(fig, filename, subdir, tight_layout=False)
         plt.close(fig)
 
         return self.output_dir / (subdir or "") / filename
@@ -464,6 +1146,526 @@ class VisualizationManager:
 
         # Save figure
         filename = "overview_fitted_vs_dose.png"
+        self._save_plot(fig, filename, subdir, tight_layout=False)
+        plt.close(fig)
+
+        return self.output_dir / (subdir or "") / filename
+
+    def plot_combined_intact_dna_vs_process(
+        self,
+        df: pd.DataFrame,
+        log_scale_dna: bool = True,
+        subdir: str = None,
+        title: str = None,
+        cv_mode: bool = False,
+    ):
+        """
+        Create grid plot showing both intact fraction and DNA concentration vs process steps with dual y-axes.
+
+        Args:
+            df: DataFrame with both intact fraction and DNA data
+            log_scale_dna: Whether to use log scale for DNA y-axis
+            subdir: Optional subdirectory to save within output_dir
+            title: Optional title override
+            cv_mode: Whether in cross-validation mode (highlights test data)
+
+        Returns:
+            Path to saved plot or None if failed
+        """
+        required_cols = [
+            "experiment_id",
+            "process_step",
+            "observed_frac",
+            "intact_frac_pred",
+            "dna_conc",
+            "dna_pred",
+            "biomass_type",
+            "wash_procedure",
+        ]
+
+        # Check if we have all required columns
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            print(f"Missing columns for combined plot: {missing}")
+            return None
+
+        # Filter to valid data
+        df_valid = df.dropna(subset=["experiment_id"]).copy()
+        if df_valid.empty:
+            print("No valid data with experiment_id for combined plot.")
+            return None
+
+        # Get unique experiment IDs
+        exp_ids = sorted(
+            [int(x) for x in df_valid["experiment_id"].unique() if pd.notna(x)]
+        )
+        n_exps = len(exp_ids)
+
+        if n_exps == 0:
+            print("No experiments found for combined plot.")
+            return None
+
+        # Set Seaborn style
+        sns.set_style("darkgrid")
+
+        # --- Parameters for fixed subplot dimensions (in inches) ---
+        subplot_width = 2.5  # width of each subplot (slightly wider for dual y-axis)
+        subplot_height = 2.5  # height of each subplot (slightly taller for dual y-axis)
+        h_spacing = 0.7  # horizontal spacing between subplots (wider for dual y-axis)
+        v_spacing = 1.2  # vertical spacing between rows
+        left_margin = 1.2  # left margin of the figure (wider for dual y-axis)
+        right_margin = 1.2  # right margin (wider for dual y-axis)
+        bottom_margin = 1.2  # bottom margin
+        top_margin = 1.5  # top margin
+
+        # --- Determine layout based on number of experiments ---
+        if n_exps <= 3:
+            n_top = n_exps
+            n_bottom = 0
+        elif n_exps <= 4:
+            n_top = 2
+            n_bottom = 2
+        elif n_exps <= 7:
+            n_top = 3
+            n_bottom = min(4, n_exps - n_top)
+        else:  # More than 7 experiments
+            n_top = 4
+            n_bottom = 4
+            print(f"Warning: More than 8 experiments ({n_exps}), only showing first 8.")
+            exp_ids = exp_ids[:8]
+            n_exps = 8
+
+        has_top_row = n_top > 0
+        has_bottom_row = n_bottom > 0
+
+        # Calculate layout dimensions
+        if has_top_row:
+            total_top_width = n_top * subplot_width + (n_top - 1) * h_spacing
+        else:
+            total_top_width = 0
+
+        if has_bottom_row:
+            total_bottom_width = n_bottom * subplot_width + (n_bottom - 1) * h_spacing
+        else:
+            total_bottom_width = 0
+
+        # Figure width is the maximum row width plus margins
+        fig_width = (
+            max(total_top_width, total_bottom_width) + left_margin + right_margin
+        )
+
+        # Figure height depends on how many rows we have
+        if has_top_row and has_bottom_row:
+            fig_height = (
+                top_margin + subplot_height + v_spacing + subplot_height + bottom_margin
+            )
+        elif has_top_row or has_bottom_row:
+            fig_height = top_margin + subplot_height + bottom_margin
+        else:
+            fig_height = (
+                top_margin + bottom_margin
+            )  # Should never happen as we always have at least 1 experiment
+
+        # Create figure
+        fig = plt.figure(figsize=(fig_width, fig_height), dpi=300)
+
+        # --- Create axes for each row ---
+        # For each experiment, we'll create a main ax and a twin ax for dual y-axis
+        main_axes = []
+        twin_axes = []
+
+        if has_top_row:
+            top_y = (
+                (bottom_margin + subplot_height + v_spacing) / fig_height
+                if has_bottom_row
+                else bottom_margin / fig_height
+            )
+            top_h = subplot_height / fig_height
+            top_left_offset = (
+                left_margin
+                + (fig_width - left_margin - right_margin - total_top_width) / 2
+            )
+
+            for i in range(n_top):
+                ax_left = (
+                    top_left_offset + i * (subplot_width + h_spacing)
+                ) / fig_width
+                main_ax = fig.add_axes(
+                    [ax_left, top_y, subplot_width / fig_width, top_h]
+                )
+                twin_ax = main_ax.twinx()
+                main_axes.append(main_ax)
+                twin_axes.append(twin_ax)
+
+        if has_bottom_row:
+            bottom_y = bottom_margin / fig_height
+            bottom_h = subplot_height / fig_height
+            bottom_left_offset = (
+                left_margin
+                + (fig_width - left_margin - right_margin - total_bottom_width) / 2
+            )
+
+            for i in range(n_bottom):
+                ax_left = (
+                    bottom_left_offset + i * (subplot_width + h_spacing)
+                ) / fig_width
+                main_ax = fig.add_axes(
+                    [ax_left, bottom_y, subplot_width / fig_width, bottom_h]
+                )
+                twin_ax = main_ax.twinx()
+                main_axes.append(main_ax)
+                twin_axes.append(twin_ax)
+
+        # Divide experiment IDs between rows
+        top_experiments = exp_ids[:n_top]
+        bottom_experiments = exp_ids[n_top : n_top + n_bottom]
+
+        # Define standard process step order
+        step_order = {
+            "resuspended biomass": 0,
+            "initial lysis": 1,
+            "1st wash": 2,
+            "2nd wash": 3,
+            "3rd wash": 4,
+            "4th wash": 5,
+        }
+
+        # Set colors
+        intact_obs_color = self.color_schemes["primary"]
+        intact_pred_color = self.color_schemes["secondary"]
+        dna_obs_color = "green"
+        dna_pred_color = "orange"
+
+        # Plot each experiment
+        for i, (main_ax, twin_ax, exp_id) in enumerate(
+            zip(main_axes, twin_axes, exp_ids)
+        ):
+            exp_data = df_valid[df_valid["experiment_id"] == exp_id].copy()
+
+            # Check if we have any data
+            if exp_data.empty:
+                main_ax.text(
+                    0.5,
+                    0.5,
+                    f"No data for Exp {exp_id}",
+                    ha="center",
+                    va="center",
+                    fontsize=10,
+                )
+                main_ax.set_title(f"Experiment {exp_id}")
+                continue
+
+            # Sort by process step
+            exp_data["step_order"] = exp_data["process_step"].map(
+                lambda x: step_order.get(str(x).lower(), 999)
+            )
+            exp_data = exp_data.sort_values("step_order")
+
+            # Get process steps for x-axis
+            x_steps = exp_data["process_step"].values
+
+            # Get biomass type and wash procedure for annotation
+            biomass = exp_data["biomass_type"].iloc[0]
+            wash = exp_data["wash_procedure"].iloc[0]
+
+            # Check if we have any DNA data
+            has_dna_data = (
+                not exp_data["dna_conc"].isnull().all()
+                and not exp_data["dna_pred"].isnull().all()
+            )
+
+            # Plot intact fraction on the main axis
+            if cv_mode and "is_test" in exp_data.columns:
+                # CV mode - highlight test data
+                train_data = exp_data[~exp_data["is_test"]].copy()
+                test_data = exp_data[exp_data["is_test"]].copy()
+
+                # Plot training data with lower alpha
+                if not train_data.empty:
+                    valid_obs = train_data["observed_frac"].notna()
+                    if valid_obs.any():
+                        main_ax.plot(
+                            train_data["process_step"].values,
+                            train_data.loc[valid_obs, "observed_frac"],
+                            "o--",
+                            color=intact_obs_color,
+                            alpha=0.3,
+                            markersize=6,
+                        )
+
+                    valid_pred = train_data["intact_frac_pred"].notna()
+                    if valid_pred.any():
+                        main_ax.plot(
+                            train_data["process_step"].values,
+                            train_data.loc[valid_pred, "intact_frac_pred"],
+                            "x--",
+                            color=intact_pred_color,
+                            alpha=0.3,
+                            markersize=6,
+                        )
+
+                # Plot test data with full alpha
+                if not test_data.empty:
+                    valid_obs = test_data["observed_frac"].notna()
+                    if valid_obs.any():
+                        main_ax.plot(
+                            test_data["process_step"].values,
+                            test_data.loc[valid_obs, "observed_frac"],
+                            "o-",
+                            color=intact_obs_color,
+                            linewidth=2,
+                            markersize=8,
+                        )
+
+                    valid_pred = test_data["intact_frac_pred"].notna()
+                    if valid_pred.any():
+                        main_ax.plot(
+                            test_data["process_step"].values,
+                            test_data.loc[valid_pred, "intact_frac_pred"],
+                            "x--",
+                            color=intact_pred_color,
+                            linewidth=2,
+                            markersize=8,
+                        )
+
+                # Plot DNA data on the twin axis if available
+                if has_dna_data:
+                    # Filter by log scale requirements if needed
+                    if log_scale_dna:
+                        train_data_dna = train_data[
+                            (train_data["dna_conc"] > 0) | (train_data["dna_pred"] > 0)
+                        ].copy()
+                        test_data_dna = test_data[
+                            (test_data["dna_conc"] > 0) | (test_data["dna_pred"] > 0)
+                        ].copy()
+                    else:
+                        train_data_dna = train_data[
+                            (train_data["dna_conc"] >= 0)
+                            | (train_data["dna_pred"] >= 0)
+                        ].copy()
+                        test_data_dna = test_data[
+                            (test_data["dna_conc"] >= 0) | (test_data["dna_pred"] >= 0)
+                        ].copy()
+
+                    # Plot training DNA data
+                    if not train_data_dna.empty:
+                        valid_obs = train_data_dna["dna_conc"].notna()
+                        if valid_obs.any():
+                            twin_ax.plot(
+                                train_data_dna["process_step"].values,
+                                train_data_dna.loc[valid_obs, "dna_conc"],
+                                "s--",
+                                color=dna_obs_color,
+                                alpha=0.3,
+                                markersize=6,
+                            )
+
+                        valid_pred = train_data_dna["dna_pred"].notna()
+                        if valid_pred.any():
+                            twin_ax.plot(
+                                train_data_dna["process_step"].values,
+                                train_data_dna.loc[valid_pred, "dna_pred"],
+                                "d--",
+                                color=dna_pred_color,
+                                alpha=0.3,
+                                markersize=6,
+                            )
+
+                    # Plot test DNA data
+                    if not test_data_dna.empty:
+                        valid_obs = test_data_dna["dna_conc"].notna()
+                        if valid_obs.any():
+                            twin_ax.plot(
+                                test_data_dna["process_step"].values,
+                                test_data_dna.loc[valid_obs, "dna_conc"],
+                                "s-",
+                                color=dna_obs_color,
+                                linewidth=2,
+                                markersize=8,
+                            )
+
+                        valid_pred = test_data_dna["dna_pred"].notna()
+                        if valid_pred.any():
+                            twin_ax.plot(
+                                test_data_dna["process_step"].values,
+                                test_data_dna.loc[valid_pred, "dna_pred"],
+                                "d--",
+                                color=dna_pred_color,
+                                linewidth=2,
+                                markersize=8,
+                            )
+            else:
+                # Standard mode (not CV)
+                # Plot intact fraction data
+                valid_obs = exp_data["observed_frac"].notna()
+                if valid_obs.any():
+                    main_ax.plot(
+                        exp_data["process_step"].values,
+                        exp_data.loc[valid_obs, "observed_frac"],
+                        "o-",
+                        color=intact_obs_color,
+                        linewidth=2,
+                        markersize=8,
+                    )
+
+                valid_pred = exp_data["intact_frac_pred"].notna()
+                if valid_pred.any():
+                    main_ax.plot(
+                        exp_data["process_step"].values,
+                        exp_data.loc[valid_pred, "intact_frac_pred"],
+                        "x--",
+                        color=intact_pred_color,
+                        linewidth=2,
+                        markersize=8,
+                    )
+
+                # Plot DNA data on the twin axis if available
+                if has_dna_data:
+                    # Filter by log scale requirements if needed
+                    if log_scale_dna:
+                        exp_data_dna = exp_data[
+                            (exp_data["dna_conc"] > 0) | (exp_data["dna_pred"] > 0)
+                        ].copy()
+                    else:
+                        exp_data_dna = exp_data[
+                            (exp_data["dna_conc"] >= 0) | (exp_data["dna_pred"] >= 0)
+                        ].copy()
+
+                    if not exp_data_dna.empty:
+                        valid_obs = exp_data_dna["dna_conc"].notna()
+                        if valid_obs.any():
+                            twin_ax.plot(
+                                exp_data_dna["process_step"].values,
+                                exp_data_dna.loc[valid_obs, "dna_conc"],
+                                "s-",
+                                color=dna_obs_color,
+                                linewidth=2,
+                                markersize=8,
+                            )
+
+                        valid_pred = exp_data_dna["dna_pred"].notna()
+                        if valid_pred.any():
+                            twin_ax.plot(
+                                exp_data_dna["process_step"].values,
+                                exp_data_dna.loc[valid_pred, "dna_pred"],
+                                "d--",
+                                color=dna_pred_color,
+                                linewidth=2,
+                                markersize=8,
+                            )
+
+            # Set y-axis limits for intact fraction
+            main_ax.set_ylim(-0.05, 1.05)
+
+            # Set y-axis scale for DNA concentration
+            if has_dna_data and log_scale_dna:
+                twin_ax.set_yscale("log")
+
+            # Format x-axis
+            plt.setp(main_ax.get_xticklabels(), rotation=45, ha="right", fontsize=8)
+
+            # Add process step annotation
+            main_ax.text(
+                0.95,
+                0.95,
+                f"{wash}\n{biomass}",
+                transform=main_ax.transAxes,
+                verticalalignment="top",
+                horizontalalignment="right",
+                fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.6),
+            )
+
+            # Add title
+            main_ax.set_title(f"Experiment {exp_id}", fontsize=10)
+
+            # Only add y-labels for leftmost and rightmost plots
+            if (has_top_row and i == 0) or (not has_top_row and i == 0):
+                main_ax.set_ylabel(
+                    "Fraction Intact", fontsize=10, color=intact_obs_color
+                )
+            else:
+                main_ax.set_ylabel("")
+
+            if has_dna_data:
+                if (has_top_row and i == n_top - 1) or (
+                    not has_top_row and i == n_exps - 1
+                ):
+                    twin_ax.set_ylabel(
+                        "DNA Conc. [ng/µL]", fontsize=10, color=dna_obs_color
+                    )
+                else:
+                    twin_ax.set_ylabel("")
+
+            # Set colors for the axis labels
+            main_ax.tick_params(axis="y", colors=intact_obs_color)
+            if has_dna_data:
+                twin_ax.tick_params(axis="y", colors=dna_obs_color)
+
+            # Only add x-label for bottom row
+            if (has_bottom_row and i >= n_top) or (not has_bottom_row):
+                main_ax.set_xlabel("Process Step", fontsize=10)
+            else:
+                main_ax.set_xlabel("")
+
+        # Common legend
+        intact_obs_handle = Line2D(
+            [],
+            [],
+            marker="o",
+            color=intact_obs_color,
+            linestyle="-",
+            markersize=6,
+            label="Intact (Obs)",
+        )
+        intact_pred_handle = Line2D(
+            [],
+            [],
+            marker="x",
+            color=intact_pred_color,
+            linestyle="--",
+            markersize=6,
+            label="Intact (Pred)",
+        )
+        dna_obs_handle = Line2D(
+            [],
+            [],
+            marker="s",
+            color=dna_obs_color,
+            linestyle="-",
+            markersize=6,
+            label="DNA (Obs)",
+        )
+        dna_pred_handle = Line2D(
+            [],
+            [],
+            marker="d",
+            color=dna_pred_color,
+            linestyle="--",
+            markersize=6,
+            label="DNA (Pred)",
+        )
+
+        fig.legend(
+            handles=[
+                intact_obs_handle,
+                intact_pred_handle,
+                dna_obs_handle,
+                dna_pred_handle,
+            ],
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1 - (top_margin / 3) / fig_height),
+            ncol=4,
+            fontsize=10,
+        )
+
+        # Add global title if provided
+        if title:
+            fig.suptitle(title, fontsize=14, y=0.98)
+
+        # Save figure
+        scale_suffix = "log" if log_scale_dna else "linear"
+        filename = f"combined_intact_dna_vs_process_{scale_suffix}.png"
         self._save_plot(fig, filename, subdir, tight_layout=False)
         plt.close(fig)
 
