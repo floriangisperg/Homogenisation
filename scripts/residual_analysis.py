@@ -13,7 +13,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 # Import necessary modules
-from analysis.unified_visualization import VisualizationManager
+from analysis.visualization import VisualizationManager
 from analysis.evaluation import calculate_dna_metrics
 
 # Set up logging

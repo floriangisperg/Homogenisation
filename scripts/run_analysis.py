@@ -66,7 +66,7 @@ try:
 
     # Import evaluation and unified visualization
     from analysis.evaluation import calculate_metrics, calculate_dna_metrics
-    from analysis.unified_visualization import VisualizationManager
+    from analysis.visualization import VisualizationManager
 except ImportError as e:
     logging.error(f"Error importing analysis modules: {e}")
     logging.error(f"Attempted to import from: {SRC_DIR}")

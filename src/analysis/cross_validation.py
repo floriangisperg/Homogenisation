@@ -12,7 +12,7 @@ from .models.base_model import Model
 from .models.intact_model import IntactModel
 from .models.dna_models import DNABaseModel
 from .evaluation import calculate_metrics, calculate_dna_metrics
-from .unified_visualization import VisualizationManager  # Updated import
+from .visualization import VisualizationManager  # Updated import
 
 # Configure module logger
 logger = logging.getLogger(__name__)

@@ -14,7 +14,9 @@ dependencies = [
     "optax",
     "jaxtyping",
     "beartype",
-    "openpyxl"
+    "openpyxl",
+    "scikit-learn",
+    "gplearn"
 ]
 
 [project.optional-dependencies]
