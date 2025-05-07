@@ -58,11 +58,27 @@ class DNABaseModel(Model):
 
         success_fresh = success_frozen = False
 
-        # --- For frozen biomass, use the hybrid approach ---
-        self.params["C_release_frozen"] = self._estimate_c_release_frozen_hybrid(df_dna_base)
-        success_frozen = not np.isnan(self.params["C_release_frozen"])
+        # Fit C_frozen
+        df_frozen_release_train = df_dna_train_release[df_dna_train_release["biomass_type"] == "frozen biomass"]
+        if not df_frozen_release_train.empty and df_frozen_release_train['delta_F'].sum() > 1e-9:
+            try:
+                result_C_frozen = minimize(
+                    self._objective_dna_release,
+                    x0=self.initial_guess_C,
+                    args=(df_frozen_release_train, "frozen biomass"),
+                    method=self.optimization_method_C
+                )
+                if result_C_frozen.success:
+                    self.params["C_release_frozen"] = max(0, result_C_frozen.x[0])
+                    success_frozen = True
+                    print(
+                        f"C_frozen fit successful: {self.params['C_release_frozen']:.2f}, SSE={result_C_frozen.fun:.2f}")
+            except Exception as e:
+                print(f"Error fitting C_frozen: {e}")
+        else:
+            print("Skipping C_frozen fit (insufficient data)")
 
-        # --- For fresh biomass, use the standard approach ---
+        # Fit C_fresh
         df_fresh_release_train = df_dna_train_release[df_dna_train_release["biomass_type"] == "fresh biomass"]
         if not df_fresh_release_train.empty and df_fresh_release_train['delta_F'].sum() > 1e-9:
             try:
@@ -75,8 +91,7 @@ class DNABaseModel(Model):
                 if result_C_fresh.success:
                     self.params["C_release_fresh"] = max(0, result_C_fresh.x[0])
                     success_fresh = True
-                    print(
-                        f"C_fresh fit successful: {self.params['C_release_fresh']:.2f}, SSE={result_C_fresh.fun:.2f}")
+                    print(f"C_fresh fit successful: {self.params['C_release_fresh']:.2f}, SSE={result_C_fresh.fun:.2f}")
             except Exception as e:
                 print(f"Error fitting C_fresh: {e}")
         else:
@@ -137,94 +152,7 @@ class DNABaseModel(Model):
 
         return df_dna_calc.copy()
 
-    def _estimate_c_release_frozen_hybrid(self, df_train: pd.DataFrame, weight_fresh: float = 0.3) -> float:
-        """
-        Hybrid approach to estimate C_release_frozen using both frozen and fresh biomass data.
 
-        Args:
-            df_train: Training data DataFrame
-            weight_fresh: Weight given to the estimate from fresh biomass (0-1)
-
-        Returns:
-            Estimated C_release_frozen value
-        """
-        # Split data by biomass type
-        df_frozen = df_train[df_train["biomass_type"] == "frozen biomass"].copy()
-        df_fresh = df_train[df_train["biomass_type"] == "fresh biomass"].copy()
-
-        # Check if we have both types
-        has_frozen = not df_frozen.empty
-        has_fresh = not df_fresh.empty
-
-        if not has_frozen and not has_fresh:
-            print("Warning: No valid biomass data for hybrid C_release estimation")
-            return 5000.0  # Fallback to a reasonable default
-
-        # 1. Direct estimate from frozen biomass if available
-        c_frozen_direct = None
-        if has_frozen:
-            # Filter for release data (recursive wash or initial lysis)
-            df_frozen_release = df_frozen[
-                ((df_frozen["wash_procedure"] == "recursive wash") |
-                 ((df_frozen["wash_procedure"] == "linear wash") &
-                  (df_frozen["process_step"].str.lower() == "initial lysis")))
-                & (df_frozen["process_step"].str.lower() != "resuspended biomass")
-                ].copy().dropna(subset=["dna_conc", "delta_F"])
-
-            if not df_frozen_release.empty and df_frozen_release['delta_F'].sum() > 1e-9:
-                # Use minimize to find optimal C_release_frozen
-                result = minimize(
-                    self._objective_dna_release,
-                    x0=self.initial_guess_C,
-                    args=(df_frozen_release, "frozen biomass"),
-                    method=self.optimization_method_C
-                )
-                if result.success:
-                    c_frozen_direct = max(0, result.x[0])
-                    print(f"Direct frozen estimate: C_release_frozen = {c_frozen_direct:.2f}")
-
-        # 2. Indirect estimate from fresh biomass if available
-        c_frozen_indirect = None
-        if has_fresh:
-            # Filter for release data (recursive wash or initial lysis)
-            df_fresh_release = df_fresh[
-                ((df_fresh["wash_procedure"] == "recursive wash") |
-                 ((df_fresh["wash_procedure"] == "linear wash") &
-                  (df_fresh["process_step"].str.lower() == "initial lysis")))
-                & (df_fresh["process_step"].str.lower() != "resuspended biomass")
-                ].copy().dropna(subset=["dna_conc", "delta_F"])
-
-            if not df_fresh_release.empty and df_fresh_release['delta_F'].sum() > 1e-9:
-                # Use minimize to find optimal C_release_fresh
-                result = minimize(
-                    self._objective_dna_release,
-                    x0=self.initial_guess_C,
-                    args=(df_fresh_release, "fresh biomass"),
-                    method=self.optimization_method_C
-                )
-                if result.success:
-                    c_fresh = max(0, result.x[0])
-                    # Apply transfer function from fresh to frozen (based on your data)
-                    # Empirical relationship: C_frozen ≈ 0.42 * C_fresh
-                    c_frozen_indirect = 0.42 * c_fresh
-                    print(
-                        f"Indirect estimate: C_release_fresh = {c_fresh:.2f}, implied C_release_frozen = {c_frozen_indirect:.2f}")
-
-        # 3. Combine estimates
-        if c_frozen_direct is not None and c_frozen_indirect is not None:
-            # Weighted combination
-            c_frozen_combined = (1 - weight_fresh) * c_frozen_direct + weight_fresh * c_frozen_indirect
-            print(f"Hybrid estimate: C_release_frozen = {c_frozen_combined:.2f} (weight_fresh={weight_fresh})")
-            return c_frozen_combined
-        elif c_frozen_direct is not None:
-            print(f"Using direct estimate only: C_release_frozen = {c_frozen_direct:.2f}")
-            return c_frozen_direct
-        elif c_frozen_indirect is not None:
-            print(f"Using indirect estimate only: C_release_frozen = {c_frozen_indirect:.2f}")
-            return c_frozen_indirect
-        else:
-            print("Warning: Failed to estimate C_release_frozen, using default")
-            return 5000.0  # Fallback
 
 
 class SingleWashDNAModel(DNABaseModel):
